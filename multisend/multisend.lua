@@ -99,6 +99,12 @@ hook.events.register('load', 'load_cb', function ()
 	
 	hShm = ffi.cast('HANDLE', C.MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, 0));
 
+	if (hMap == nil) then
+		msg = ("view failed");
+		daoc.chat.msg(daoc.chat.message_mode.help, msg)
+		return;
+	end
+
 	local tempShm = ffi.new("TSharedData");
 
 	ffi.copy(hShm, tempShm, 1);
