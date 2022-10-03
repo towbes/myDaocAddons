@@ -18,7 +18,7 @@ ffi.cdef[[
 
 	HANDLE CreateFileMappingA(
 	HANDLE				  hFile,
-	LPSECURITY_ATTRIBUTES lpFileMappingAttributes,
+	HANDLE lpFileMappingAttributes,
 	DWORD                 flProtect,
 	DWORD                 dwMaximumSizeHigh,
 	DWORD                 dwMaximumSizeLow,
@@ -60,8 +60,6 @@ ffi.cdef[[
 		SEC_WRITECOMBINE = 0x40000000,
     };
 
-
-
 	// Data struct to be shared between processes
 	typedef struct _TSharedData {
 		UINT32 test;
@@ -82,20 +80,30 @@ local FILE_MAP_ALL_ACCESS = 0xf001f
 hook.events.register('load', 'load_cb', function ()
 	--create LPSECURITY_ATTRIBUTES holder
 	local lpAtt = ffi.new('LPSECURITY_ATTRIBUTES');
+	--shm name
+	local luaName = 'luashm';
+	local shmName = ffi.cast('LPCSTR', luaName);
 
     -- Obtain the shm handle..
 	hMap = ffi.cast('HANDLE', C.CreateFileMappingA(
-		INVALID_HANDLE_VALUE, lpAtt, C.PAGE_READWRITE, 0, 1, ffi.cast('LPCSTR', 'luashm')
+		INVALID_HANDLE_VALUE, nil, C.PAGE_READWRITE, 0, 1, shmName
 	));
 
 
-	--if (hMap == nil) then
-	--	return;
-	--end
+	if (hMap == nil) then
+		msg = ("map failed");
+		daoc.chat.msg(daoc.chat.message_mode.help, msg)
+		return;
+	end
 
+	
 	hShm = ffi.cast('HANDLE', C.MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, 0));
 
-	hShm = ffi.new("TSharedData");
+	local tempShm = ffi.new("TSharedData");
+
+	ffi.copy(hShm, tempShm, 1);
+
+
 
 end);
 
