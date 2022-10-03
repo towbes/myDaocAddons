@@ -1,2 +1,2 @@
 # myDaocAddons
- Lua addons for (daochook)[https://daochook.github.io/]
+ Lua addons for [daochook](https://daochook.github.io/)
