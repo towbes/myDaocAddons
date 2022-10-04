@@ -1,5 +1,5 @@
 # Multisend
-Lua addons for [daochook](https://daochook.github.io/)
+Lua addon for [daochook](https://daochook.github.io/)
 
 Original code from Ashita Plugin by Thorny: https://github.com/ThornyFFXI/Multisend
 
