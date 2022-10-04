@@ -114,21 +114,21 @@ ffi.cdef[[
 		MMF_Name_Single			Names[100];
 	} MMF_Name;
 	//
-	//typedef struct 
-	//{
-	//	uint8_t			active;
-	//	//multisend_type	type;
-	//	uint32_t		param;
-	//	uint32_t		sender_process_id;
-	//	uint8_t			command[248];
-	//} MMF_ICommand_Single;
+	typedef struct 
+	{
+		uint8_t			active;
+		//multisend_type	type;
+		//uint32_t		param;
+		uint32_t		sender_process_id;
+		uint8_t			command[248];
+	} MMF_ICommand_Single;
 	//
-	//typedef struct 
-	//{
-	//	uint32_t				ProcessID;
-	//	uint32_t				Position;
-	//	MMF_ICommand_Single		Command[100];
-	//} MMF_ICommand;
+	typedef struct 
+	{
+		uint32_t				ProcessID;
+		uint32_t				Position;
+		MMF_ICommand_Single		Command[100];
+	} MMF_ICommand;
 	//
 	//typedef struct 
 	//{
@@ -142,7 +142,7 @@ ffi.cdef[[
 	
 	typedef struct 	{
 		MMF_Name				Name;
-		//MMF_ICommand			Command;
+		MMF_ICommand			Command;
 		//MMF_IFollow				Follow;
 	} MMF_Global;
 
@@ -154,6 +154,8 @@ shared.map      = nil;
 shared.view     = nil;
 shared.mem      = nil;
 
+--Global variables for Command Position
+local s_position = 0;
 
 --[[
 * event: load
@@ -173,6 +175,11 @@ hook.events.register('load', 'load_cb', function ()
     end
 
     shared.mem = ffi.cast('MMF_Global*', shared.view);
+
+	--Set the current command position
+	s_position = shared.mem.Command.Position;
+
+	daoc.chat.msg(daoc.chat.message_mode.help, ('Initial s_pos %d'):fmt(s_position));
 
 	--Check if we already have an active process
 	local procId = C.GetProcessId(C.GetCurrentProcess());
@@ -235,63 +242,159 @@ hook.events.register('command', 'command_cb', function (e)
     local args = e.modified_command:args();
     if (#args == 0) then return; end
 
-
-
-    -- Command: /maximize, /minimize
-    if ((args[1]:any('write') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/write')) then
+    if ((args[1]:any('ms') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/ms')) then
         e.blocked = true;
 
-		if (shared.mem == nil) then
-			return;
-		end
+		if (#args == 1) then return; end
 
-		local procId = C.GetProcessId(C.GetCurrentProcess());
-		daoc.chat.msg(daoc.chat.message_mode.help, ('ProcID: %d'):fmt(procId));
-		--shared.mem.Name.ProcessID = procId;
-		--shared.mem.Name.Names[0].Process = procId;
+		-- Command: send
+		if ((args[2]:any('send'))) then
 
-		for i=0, 100 do
-			if (shared.mem.Name.Names[i].Active == 0) then
-				shared.mem.Name.Names[i].Active = 1;
-				shared.mem.Name.Names[i].Process = procId;
-				
+			if (args[3] == nil) then return; end
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
 				return;
 			end
-		end
-        return;
-    end
 
-    -- Command: /maximize, /minimize
-    if ((args[1]:any('read') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/read')) then
-        e.blocked = true;
+			local procId = C.GetProcessId(C.GetCurrentProcess());
 
-        if (shared.mem == nil) then
-            return;
-        end
-
-		for i=0, 100 do
-			if (shared.mem.Name.Names[i].Active == 1) then
-				daoc.chat.msg(daoc.chat.message_mode.help, ('Char %d: %d'):fmt(i, shared.mem.Name.Names[i].Process));
+			local command = args[3];
+			if (#args > 3) then
+				for i=4, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
 			end
-		end
-        return;
-    end
 
-	-- Command: /maximize, /minimize
-	if ((args[1]:any('clear') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/clear')) then
-		e.blocked = true;
+			SendCommand(command);
 
-		if (shared.mem == nil) then
+			--for i=0, 100 do
+			--	if (shared.mem.Name.Names[i].Active == 1) then
+			--		if (shared.mem.Name.Names[i].Process ~= procId) then
+			--		shared.mem.Name.Names[i].Active = 1;
+			--		shared.mem.Name.Names[i].Process = procId;
+			--		end
+			--	end
+			--end
 			return;
 		end
 
-		--Set everything inactive
-		for i=0, 100 do
-			shared.mem.Name.Names[i].Active = 0;
-			shared.mem.Name.Names[i].Process = 0;
+		-- Command: write
+		if ((args[2]:any('write'))) then
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
+				return;
+			end
+
+			local procId = C.GetProcessId(C.GetCurrentProcess());
+			daoc.chat.msg(daoc.chat.message_mode.help, ('ProcID: %d'):fmt(procId));
+			--shared.mem.Name.ProcessID = procId;
+			--shared.mem.Name.Names[0].Process = procId;
+
+			for i=0, 100 do
+				if (shared.mem.Name.Names[i].Active == 0) then
+					shared.mem.Name.Names[i].Active = 1;
+					shared.mem.Name.Names[i].Process = procId;
+					
+					return;
+				end
+			end
+		end
+		-- Command: read
+		if ((args[2]:any('read'))) then
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
+				return;
+			end
+
+			for i=0, 100 do
+				if (shared.mem.Name.Names[i].Active == 1) then
+					daoc.chat.msg(daoc.chat.message_mode.help, ('Char %d: %d'):fmt(i, shared.mem.Name.Names[i].Process));
+				end
+			end
+			return;
 		end
 
-		return;
-	end
+		-- Command: clear
+		if ((args[2]:any('clear'))) then
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
+				return;
+			end
+
+			--Set everything inactive
+			for i=0, 100 do
+				shared.mem.Name.Names[i].Active = 0;
+				shared.mem.Name.Names[i].Process = 0;
+			end
+
+			return;
+		end
+        return;
+    end
+
+
 
 end);
+
+--[[
+* event: d3d_present
+* desc : Called when the Direct3D device is presenting a scene.
+--]]
+hook.events.register('d3d_present', 'd3d_present_cb', function ()
+
+
+	--Check for command, executes every frame
+	ReadCommand();
+end);
+
+
+--[[
+* function: ReadCommand
+* desc : Loop for receiving commands
+--]]
+function ReadCommand ()
+
+	local procId = C.GetProcessId(C.GetCurrentProcess());
+
+	if (shared.mem.Command.Command[s_position].active == 1) then
+		--If this process is sender, don't execute the command -- need to update to support sending to all
+		if (shared.mem.Command.Command[s_position].sender_process_id ~= procId) then
+			daoc.chat.msg(daoc.chat.message_mode.help, ('Reading command: %s'):fmt(ffi.string(shared.mem.Command.Command[s_position].command)));
+			daoc.chat.exec(daoc.chat.command_mode.typed, daoc.chat.input_mode.normal, ffi.string(shared.mem.Command.Command[s_position].command));
+		end
+		s_position = s_position + 1;
+		if (s_position == 100) then s_position = 0; end
+		return true;
+	end
+
+	return false;
+end
+
+--[[
+* function: Send
+* desc : Send Command to target process
+--]]
+function SendCommand (cmd)
+	local procId = C.GetProcessId(C.GetCurrentProcess());
+	local NextPosition = shared.mem.Command.Position + 1;
+	if (NextPosition == 100) then NextPosition = 0; end
+
+	--Set the next position to false
+	shared.mem.Command.Command[NextPosition].active = false;
+
+	--Reset the current position
+	shared.mem.Command.Command[shared.mem.Command.Position].command = "";
+
+	--Set the current command
+	shared.mem.Command.Command[shared.mem.Command.Position].sender_process_id = procId;
+	shared.mem.Command.Command[shared.mem.Command.Position].command = cmd;
+	shared.mem.Command.Command[shared.mem.Command.Position].active = true;
+	daoc.chat.msg(daoc.chat.message_mode.help, ('active:%s Spos: %d command %s'):fmt(tostring(shared.mem.Command.Command[shared.mem.Command.Position].active),shared.mem.Command.Position, cmd));
+	--Move the position + 1
+	shared.mem.Command.Position = NextPosition;
+end
