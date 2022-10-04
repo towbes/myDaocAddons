@@ -91,15 +91,15 @@ ffi.cdef[[
 	//	UINT32 test;
 	//} MMF_Global;
 //
-	////enum multisend_type
-	////{
-	////	all, //Param irrelevant
-	////	others, //Param = sender's process ID
-	////	alliance, //Param = sender's server id
-	////	party, //Param = sender's server id
-	////	group, //Param = group id
-	////	single //Param = process id of target
-	////};
+	enum
+	{
+		all = 0, //Param irrelevant
+		others = 1, //Param = sender's process ID
+		alliance = 2, //Param = sender's server id
+		party = 3, //Param = sender's server id
+		group = 4, //Param = group id
+		single = 5, //Param = process id of target
+	};
 	//
 	typedef struct
 	{
@@ -117,8 +117,8 @@ ffi.cdef[[
 	typedef struct 
 	{
 		uint8_t			active;
-		//multisend_type	type;
-		//uint32_t		param;
+		uint8_t	type;
+		uint32_t		param;
 		uint32_t		sender_process_id;
 		uint8_t			command[248];
 	} MMF_ICommand_Single;
@@ -178,8 +178,7 @@ hook.events.register('load', 'load_cb', function ()
 
 	--Set the current command position
 	s_position = shared.mem.Command.Position;
-
-	daoc.chat.msg(daoc.chat.message_mode.help, ('Initial s_pos %d'):fmt(s_position));
+	--daoc.chat.msg(daoc.chat.message_mode.help, ('Initial s_pos %d'):fmt(s_position));
 
 	--Check if we already have an active process
 	local procId = C.GetProcessId(C.GetCurrentProcess());
@@ -234,6 +233,29 @@ hook.events.register('unload', 'unload_cb', function ()
 end);
 
 --[[
+* Prints the addon specific help information.
+*
+* @param {err} err - Flag that states if this function was called due to an error.
+--]]
+local function print_help(err)
+    err = err or false;
+
+    local mode = daoc.chat.message_mode.help;
+    if (err) then
+        daoc.chat.msg(mode, 'Invalid command syntax for command: /multisend');
+    else
+        daoc.chat.msg(mode, 'Available commands for the move addon are:');
+    end
+
+    local help = daoc.chat.msg:compose(function (cmd, desc)
+        return mode, ('  %s - %s'):fmt(cmd, desc);
+    end);
+
+    help('/ms send <command>, /mss <command>', 'Send command to all windows');
+    help('/ms sendothers <command>, /mso <command>', 'Send command to other windows');
+end
+
+--[[
 * event: command
 * desc : Called when the game is handling a command.
 --]]
@@ -242,13 +264,41 @@ hook.events.register('command', 'command_cb', function (e)
     local args = e.modified_command:args();
     if (#args == 0) then return; end
 
-    if ((args[1]:any('ms') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/ms')) then
+    if ((args[1]:any('ms', 'mss', 'mso') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/ms', '/mss', '/mso')) then
         e.blocked = true;
 
+		
 		if (#args == 1) then return; end
 
-		-- Command: send
-		if ((args[2]:any('send'))) then
+        -- Command: help
+        if (#args == 2 and args[2]:any('help')) then
+            print_help(false);
+            return;
+        end
+
+		-- Command: mss - send all
+		if ((args[1]:any('mss') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/mss')) then
+
+			if (args[2] == nil) then return; end
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[1]));
+				return;
+			end
+
+			local command = args[2];
+			if (#args > 2) then
+				for i=3, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
+			end
+
+			SendCommand(C.all, 0, command);
+			return;
+		end
+		-- Command: send - send all
+		if (args[2]:any('send')) then
 
 			if (args[3] == nil) then return; end
 
@@ -267,16 +317,55 @@ hook.events.register('command', 'command_cb', function (e)
 				end
 			end
 
-			SendCommand(command);
+			SendCommand(C.all, 0, command);
+			return;
+		end
 
-			--for i=0, 100 do
-			--	if (shared.mem.Name.Names[i].Active == 1) then
-			--		if (shared.mem.Name.Names[i].Process ~= procId) then
-			--		shared.mem.Name.Names[i].Active = 1;
-			--		shared.mem.Name.Names[i].Process = procId;
-			--		end
-			--	end
-			--end
+		-- Command: mso - send others
+		if ((args[1]:any('mso') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/mso')) then
+
+			if (args[2] == nil) then return; end
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[1]));
+				return;
+			end
+			--Get process ID to send as param
+			local procId = C.GetProcessId(C.GetCurrentProcess());
+
+			local command = args[2];
+			if (#args > 2) then
+				for i=3, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
+			end
+
+			SendCommand(C.others, procId, command);
+			return;
+		end
+		-- Command: sendothers - send others
+		if (args[2]:any('sendothers')) then
+
+			if (args[3] == nil) then return; end
+
+			if (shared.mem == nil) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
+				return;
+			end
+
+			--Get process ID to send as param
+			local procId = C.GetProcessId(C.GetCurrentProcess());
+
+			local command = args[3];
+			if (#args > 3) then
+				for i=4, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
+			end
+
+			SendCommand(C.others, procId, command);
 			return;
 		end
 
@@ -334,7 +423,10 @@ hook.events.register('command', 'command_cb', function (e)
 
 			return;
 		end
-        return;
+        
+		-- Unknown sub-command..
+		print_help(true);
+		return;
     end
 
 
@@ -359,12 +451,10 @@ end);
 --]]
 function ReadCommand ()
 
-	local procId = C.GetProcessId(C.GetCurrentProcess());
-
 	if (shared.mem.Command.Command[s_position].active == 1) then
 		--If this process is sender, don't execute the command -- need to update to support sending to all
-		if (shared.mem.Command.Command[s_position].sender_process_id ~= procId) then
-			daoc.chat.msg(daoc.chat.message_mode.help, ('Reading command: %s'):fmt(ffi.string(shared.mem.Command.Command[s_position].command)));
+		if (CheckMatch(shared.mem.Command.Command[s_position].type, shared.mem.Command.Command[s_position].param)) then
+			--daoc.chat.msg(daoc.chat.message_mode.help, ('Reading command: %s'):fmt(ffi.string(shared.mem.Command.Command[s_position].command)));
 			daoc.chat.exec(daoc.chat.command_mode.typed, daoc.chat.input_mode.normal, ffi.string(shared.mem.Command.Command[s_position].command));
 		end
 		s_position = s_position + 1;
@@ -379,7 +469,7 @@ end
 * function: Send
 * desc : Send Command to target process
 --]]
-function SendCommand (cmd)
+function SendCommand (type, param, cmd)
 	local procId = C.GetProcessId(C.GetCurrentProcess());
 	local NextPosition = shared.mem.Command.Position + 1;
 	if (NextPosition == 100) then NextPosition = 0; end
@@ -392,9 +482,26 @@ function SendCommand (cmd)
 
 	--Set the current command
 	shared.mem.Command.Command[shared.mem.Command.Position].sender_process_id = procId;
+	shared.mem.Command.Command[shared.mem.Command.Position].type = type;
 	shared.mem.Command.Command[shared.mem.Command.Position].command = cmd;
+	shared.mem.Command.Command[shared.mem.Command.Position].param = param;
 	shared.mem.Command.Command[shared.mem.Command.Position].active = true;
-	daoc.chat.msg(daoc.chat.message_mode.help, ('active:%s Spos: %d command %s'):fmt(tostring(shared.mem.Command.Command[shared.mem.Command.Position].active),shared.mem.Command.Position, cmd));
+	--daoc.chat.msg(daoc.chat.message_mode.help, ('active:%s Spos: %d command %s'):fmt(tostring(shared.mem.Command.Command[shared.mem.Command.Position].active),shared.mem.Command.Position, cmd));
 	--Move the position + 1
 	shared.mem.Command.Position = NextPosition;
 end
+
+function CheckMatch (cmdType, param)
+	local procId = C.GetProcessId(C.GetCurrentProcess());
+
+	if (cmdType == C.all) then
+		return true;
+	elseif (cmdType == C.others) then
+		--daoc.chat.msg(daoc.chat.message_mode.help, ('Checkmatch: %d, %d'):fmt(procId, param));
+		if (procId ~= param) then
+			return true;
+		end
+	end
+
+end
+
