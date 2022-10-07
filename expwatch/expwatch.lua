@@ -181,7 +181,6 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
         -- Render a custom example window via ImGui..
         imgui.SetNextWindowSize(T{ 350, 200, }, ImGuiCond_FirstUseEver);
         if (imgui.Begin('ExpWatch')) then
-            imgui.Text(("%s"):fmt(expwatch.player.name));
             imgui.Text(("Start level: %.03f"):fmt(expwatch.startTotal));
             imgui.Separator();
             local currTotal = hook.memory.read_int32(expwatch.lvlpointer) + (hook.memory.read_float(expwatch.exppointer) * 0.001);
