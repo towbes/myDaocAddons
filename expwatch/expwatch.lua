@@ -38,16 +38,27 @@ local window = T{
 
 -- expwatch variables..
 local expwatch = T{ 
+    --Regular exp
     exppointer = 0,
     lvlpointer = 0,
     startexp = 0,
-    player = 0,
     startLvl = 0,
     currentLvl = 0,
     currentExp = 0,
+    --champ exp
+    clexppointer = 0,
+    cllvlpointer = 0,
+    clstartexp = 0,
+    clstartLvl = 0,
+    clcurrentLvl = 0,
+    clcurrentExp = 0,
+    --storage variables
+
+    player = 0,
     name = '',
     startTime = 0,
-    startTotal = 0};
+    startTotal = 0,
+    is_checked = T{ false, },};
 
 --[[
 * event: load
@@ -60,38 +71,69 @@ hook.events.register('load', 'load_cb', function ()
     if (expptr == 0) then
         error('Failed to locate required memory pointer; cannot load.');
     end
-
     -- Read the pointer from the opcode..
     expptr = hook.memory.read_uint32(expptr);
     if (expptr == 0) then
         error('Failed to locate required memory pointer; cannot load.');
     end
-
     -- Store the pointer..
     expwatch.exppointer = expptr;
 
-    -- Locate the current exp pointer..
+    -- Locate the player level pointer..
     --Address of signature = game.dll + 0x00020AD5
     local lvlptr = hook.pointers.add('expwatch.playerlvl', 'game.dll', 'A1????????????????A493', 1, 0);
     if (lvlptr == 0) then
         error('Failed to locate required memory pointer; cannot load.');
     end
-
     -- Read the pointer from the opcode..
     lvlptr = hook.memory.read_uint32(lvlptr);
     if (lvlptr == 0) then
         error('Failed to locate required memory pointer; cannot load.');
     end
-
     -- Store the pointer..
     expwatch.lvlpointer = lvlptr;
+
+    -- Locate the CL exp pointer..
+    --Address of signature = game.dll + 0x0001B53C
+    local clexppointer = hook.pointers.add('expwatch.currentexp', 'game.dll', '890D????????8B0D????????83C4', 2, 0);
+    if (clexppointer == 0) then
+        error('Failed to locate required memory pointer; cannot load.');
+    end
+    -- Read the pointer from the opcode..
+    clexppointer = hook.memory.read_uint32(clexppointer);
+    if (clexppointer == 0) then
+        error('Failed to locate required memory pointer; cannot load.');
+    end
+    -- Store the pointer..
+    expwatch.clexppointer = clexppointer;
+
+    -- Locate the CL Level pointer..
+    --Address of signature = game.dll + 0x0001B593
+    local cllvlpointer = hook.pointers.add('expwatch.currentexp', 'game.dll', '0305????????83F8', 2, 0);
+    if (cllvlpointer == 0) then
+        error('Failed to locate required memory pointer; cannot load.');
+    end
+    -- Read the pointer from the opcode..
+    cllvlpointer = hook.memory.read_uint32(cllvlpointer);
+    if (cllvlpointer == 0) then
+        error('Failed to locate required memory pointer; cannot load.');
+    end
+    -- Store the pointer..
+    expwatch.cllvlpointer = cllvlpointer;
 
     --store start exp value
     expwatch.startexp = hook.memory.read_float(expwatch.exppointer);
     --store the level value
     expwatch.startLvl = hook.memory.read_int32(expwatch.lvlpointer);
+    --total exp value
+    expwatch.startTotal = expwatch.startLvl + expwatch.startexp * 0.001;
 
-    expwatch.startTotal = hook.memory.read_int32(expwatch.lvlpointer) + (hook.memory.read_float(expwatch.exppointer) * 0.001)
+    --store start clexp value
+    expwatch.clstartexp = hook.memory.read_int32(expwatch.clexppointer);
+    --store the cllevel value
+    expwatch.clstartLvl = hook.memory.read_int32(expwatch.cllvlpointer);
+    --total clexp value
+    expwatch.clstartTotal = expwatch.clstartLvl + expwatch.clstartexp * 0.001;
 
     --store session startTime
     expwatch.startTime = hook.time.get_tick();
@@ -147,14 +189,7 @@ hook.events.register('command', 'command_cb', function (e)
         -- Command: /example2
         if ((args[2]:ieq('reset'))) then
             
-            --reset start exp value
-            expwatch.startexp = hook.memory.read_float(expwatch.exppointer);
-            --reset the level value
-            expwatch.startLvl = hook.memory.read_int32(expwatch.lvlpointer);
-            --reset start total
-            expwatch.startTotal = hook.memory.read_int32(expwatch.lvlpointer) + (hook.memory.read_float(expwatch.exppointer) * 0.001)
-            --reset session startTime
-            expwatch.startTime = hook.time.get_tick();
+            resetCounters();
 
             return;
         end
@@ -162,11 +197,27 @@ hook.events.register('command', 'command_cb', function (e)
         print_help(true);
         return;
     end
-
-
-
 end);
 
+function resetCounters ()
+    --reset Champion level exp
+    --reset start clexp value
+    expwatch.clstartexp = hook.memory.read_int32(expwatch.clexppointer);
+    --reset the cllevel value
+    expwatch.clstartLvl = hook.memory.read_int32(expwatch.cllvlpointer);
+    --reset clexp value
+    expwatch.clstartTotal = expwatch.clstartLvl + expwatch.clstartexp * 0.001;
+
+    --reset normal exp
+    --reset start exp value
+    expwatch.startexp = hook.memory.read_float(expwatch.exppointer);
+    --reset the level value
+    expwatch.startLvl = hook.memory.read_int32(expwatch.lvlpointer);
+    --reset total exp value
+    expwatch.startTotal = expwatch.startLvl + expwatch.startexp * 0.001;
+    --reset session startTime
+    expwatch.startTime = hook.time.get_tick();
+end
 
 --[[
 * event: d3d_present
@@ -181,15 +232,34 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
         -- Render a custom example window via ImGui..
         imgui.SetNextWindowSize(T{ 350, 200, }, ImGuiCond_FirstUseEver);
         if (imgui.Begin('ExpWatch')) then
-            imgui.Text(("Start level: %.03f"):fmt(expwatch.startTotal));
-            imgui.Separator();
-            local currTotal = hook.memory.read_int32(expwatch.lvlpointer) + (hook.memory.read_float(expwatch.exppointer) * 0.001);
-            imgui.Text(("Current level: %.03f"):fmt(currTotal));
-            
-            local totalExp = currTotal - expwatch.startTotal;
-            imgui.Text(("Levels Gained: %.03f"):fmt(totalExp));
-            local perHour = totalExp / (((hook.time.get_tick() - expwatch.startTime) / 1000) / 60 / 60);
-            imgui.Text(("Levels per hour: %.03f"):fmt(perHour));
+            imgui.Checkbox('Exp Type', expwatch.is_checked);
+            imgui.SameLine();
+            if (imgui.Button('Reset')) then
+                resetCounters();
+            end
+            if (expwatch.is_checked[1]) then
+                imgui.TextColored(T{ 0.0, 1.0, 0.0, 1.0, }, 'Champion Level Exp');
+                imgui.Text(("Start level: %.03f"):fmt(expwatch.clstartTotal));
+                imgui.Separator();
+                local currTotal = hook.memory.read_int32(expwatch.cllvlpointer) + (hook.memory.read_int32(expwatch.clexppointer) * 0.001);
+                imgui.Text(("Current level: %.03f"):fmt(currTotal));
+                
+                local totalExp = currTotal - expwatch.clstartTotal;
+                imgui.Text(("Levels Gained: %.03f"):fmt(totalExp));
+                local perHour = totalExp / (((hook.time.get_tick() - expwatch.startTime) / 1000) / 60 / 60);
+                imgui.Text(("Levels per hour: %.03f"):fmt(perHour));                
+            else
+                imgui.TextColored(T{ 0.0, 1.0, 1.0, 1.0, }, 'Regular Exp');
+                imgui.Text(("Start level: %.03f"):fmt(expwatch.startTotal));
+                imgui.Separator();
+                local currTotal = hook.memory.read_int32(expwatch.lvlpointer) + (hook.memory.read_float(expwatch.exppointer) * 0.001);
+                imgui.Text(("Current level: %.03f"):fmt(currTotal));
+                
+                local totalExp = currTotal - expwatch.startTotal;
+                imgui.Text(("Levels Gained: %.03f"):fmt(totalExp));
+                local perHour = totalExp / (((hook.time.get_tick() - expwatch.startTime) / 1000) / 60 / 60);
+                imgui.Text(("Levels per hour: %.03f"):fmt(perHour));
+            end
         end
         imgui.End();
     end
