@@ -130,15 +130,15 @@ ffi.cdef[[
 		MMF_ICommand_Single		Command[100];
 	} MMF_ICommand;
 	//
-	//typedef struct 
-	//{
-	//	uint32_t				target_process_id;
-	//	uint16_t				lastzone;
-	//	uint16_t				zone;
-	//	float					position_x;
-	//	float					position_z;
-	//	uint32_t				idle_count;
-	//} MMF_IFollow;
+	typedef struct 
+	{
+		uint32_t				target_process_id;
+		uint16_t				lastzone;
+		uint16_t				zone;
+		float					position_x;
+		float					position_z;
+		uint32_t				idle_count;
+	} MMF_IFollow;
 	
 	typedef struct 	{
 		MMF_Name				Name;
@@ -154,8 +154,16 @@ shared.map      = nil;
 shared.view     = nil;
 shared.mem      = nil;
 
---Global variables for Command Position
+--Global variables for state tracking
 local s_position = 0;
+local s_last_run_state
+
+--Global variables for stick
+local c_follow;
+local c_maxdist;
+local s_vector_x;
+local s_vector_y;
+
 
 --[[
 * event: load
@@ -244,7 +252,7 @@ local function print_help(err)
     if (err) then
         daoc.chat.msg(mode, 'Invalid command syntax for command: /multisend');
     else
-        daoc.chat.msg(mode, 'Available commands for the move addon are:');
+        daoc.chat.msg(mode, 'Available commands for the multisend addon are:');
     end
 
     local help = daoc.chat.msg:compose(function (cmd, desc)
