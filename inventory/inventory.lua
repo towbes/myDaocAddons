@@ -30,17 +30,56 @@ require 'common';
 require 'daoc';
 
 local imgui = require 'imgui';
+local ffi = require 'ffi';
+
+
+--[[
+* Entity Related Function Definitions
+--]]
+ffi.cdef[[
+    typedef void        (__cdecl *sell_item_f)(const uint32_t slotNum);
+    typedef void        (__cdecl *move_item_f)(const uint32_t toSlot, const uint32_t fromSlot, const uint32_t count);
+]];
+
+--[[
+* Sells the item
+--]]
+daoc.items.sell_item = function (slotNum)
+    --Address of signature = game.dll + 0x0002B2E3
+    local ptr = hook.pointers.add('daoc.items.sellitem', 'game.dll', '558BEC83EC??833D00829900??75??568B35????????D906E8????????D946??8945??E8????????8945??6A??58E8????????6689????668B????8D75??6689????E8????????6A??6A??8BC66A', 0,0);
+    if (ptr == 0) then return; end
+    ffi.cast('sell_item_f', ptr)(slotNum);
+end
+
+--[[
+* Moves the item
+--]]
+daoc.items.move_item = function (toSlot, fromSlot, count)
+    --Address of signature = game.dll + 0x0002A976
+    local ptr = hook.pointers.add('daoc.items.moveitem', 'game.dll', '558BEC5151833D00829900??75??566A??58E8????????6689????668B????6689', 0,0);
+    if (ptr == 0) then 
+        error("Failed to load move_item")
+        return; 
+    end
+    ffi.cast('move_item_f', ptr)(toSlot, fromSlot, count);
+end
 
 -- Window Variables
 local window = T{
     is_checked = T{ false, },
-    minSlotBuf = { '' },
+    minSlotBuf = { '40' },
     minSlotBufSize = 3,
-    maxSlotBuf = { '' },
+    maxSlotBuf = { '79' },
     maxSlotBufSize = 3,
+    findItemNameBuf = {''},
+    findItemNameBufSize = 100,
+    
 };
 
 local alphaItems = T{ };
+local findItems = T{ };
+
+
 
 
 --[[
@@ -178,56 +217,104 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
     --]]
     -- Render a custom example window via ImGui..
     imgui.SetNextWindowSize(T{ 350, 200, }, ImGuiCond_FirstUseEver);
-    if (imgui.TreeNode("All Slots")) then
-        --look through all slots
-        for i = 0, 249 do
-            --Split based on slots, ie equipped gear, inventory, vault, house vault
-            local itemTemp = daoc.items.get_item(i);
-            imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
-        end
-    end
-    if (imgui.TreeNode("Alpha Slots")) then
-        --clear the table
-        alphaItems:clear();
-        --look through all slots
-        for i = 0, 249 do
-            --Split based on slots, ie equipped gear, inventory, vault, house vault
-            local itemTemp = daoc.items.get_item(i);
-            if (itemTemp.name ~= '') then
-                alphaItems:append(T{slot = i, name = itemTemp.name});
+    if (imgui.Begin('Inventory Helper')) then
+        if (imgui.TreeNode("All Slots")) then
+            --look through all slots
+            for i = 0, 249 do
+                --Split based on slots, ie equipped gear, inventory, vault, house vault
+                local itemTemp = daoc.items.get_item(i);
+                imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
-            --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
         end
+        if (imgui.TreeNode("Alpha Slots")) then
+            --clear the table
+            alphaItems:clear();
+            --set min and max slots
+            imgui.Text("MinSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MinSlot", window.minSlotBuf, window.minSlotBufSize);
+            imgui.SameLine()
+            imgui.Text("MaxSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MaxSlot", window.maxSlotBuf, window.maxSlotBufSize);
+            --look through min->max slots
+            local minSlot = tonumber(window.minSlotBuf[1]);
+            local maxSlot = tonumber(window.maxSlotBuf[1]);
+            if minSlot == nil or maxSlot == nil then return; end
+            for i = minSlot, maxSlot do
+                --Split based on slots, ie equipped gear, inventory, vault, house vault
+                local itemTemp = daoc.items.get_item(i);
+                if (itemTemp.name ~= '') then
+                    alphaItems:append(T{slot = i, name = itemTemp.name});
+                end
+                --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
+            end
 
-        alphaItems:sort(function (a, b)
-            return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
-        end);
+            alphaItems:sort(function (a, b)
+                return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+            end);
 
-        alphaItems:each(function (v,k)
-            imgui.Text(("Slot %d - ItemName - %s\n"):fmt(v.slot, v.name));
-        end);
-    end
-    if (imgui.TreeNode("Inventory Tools")) then
-        imgui.Text(("Backpack Start: %d , End: %d"):fmt(daoc.items.slot_inv_min, daoc.items.slot_inv_max));
-        imgui.Text("MinSlot:")
-        imgui.SameLine();
-        imgui.PushItemWidth(35);
-        imgui.InputText("##MinSlot", window.minSlotBuf, window.minSlotBufSize);
-        imgui.SameLine()
-        imgui.Text("MaxSlot:")
-        imgui.SameLine();
-        imgui.PushItemWidth(35);
-        imgui.InputText("##MaxSlot", window.maxSlotBuf, window.maxSlotBufSize);
-        if (imgui.Button('Sell')) then
-            daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
+            alphaItems:each(function (v,k)
+                imgui.Text(("Slot %d - %s\n"):fmt(v.slot, v.name));
+            end);
         end
-        imgui.SameLine();
-        if (imgui.Button('Drop')) then
-            daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
+        if (imgui.TreeNode("Inventory Tools")) then
+            imgui.Text(("Backpack Start: %d , End: %d"):fmt(daoc.items.slot_inv_min, daoc.items.slot_inv_max));
+            imgui.Text("MinSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MinSlot", window.minSlotBuf, window.minSlotBufSize);
+            imgui.SameLine()
+            imgui.Text("MaxSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MaxSlot", window.maxSlotBuf, window.maxSlotBufSize);
+            if (imgui.Button('Sell')) then
+                local minSlot = tonumber(window.minSlotBuf[1]);
+                local maxSlot = tonumber(window.maxSlotBuf[1]);
+                for i = minSlot, maxSlot do
+                    daoc.items.sell_item(i);
+                end
+            end
+            imgui.SameLine();
+            if (imgui.Button('Drop')) then
+                --toSlot to drop something is slot 0
+                local minSlot = tonumber(window.minSlotBuf[1]);
+                local maxSlot = tonumber(window.maxSlotBuf[1]);
+                for i = minSlot, maxSlot do
+                    daoc.items.move_item(0, i, 0);
+                end
+            end
+            imgui.SameLine();
+            if (imgui.Button('Destroy')) then
+                daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
+            end
         end
-        imgui.SameLine();
-        if (imgui.Button('Destroy')) then
-            daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
+        if (imgui.TreeNode("Find")) then
+            --clear the table
+            findItems:clear();
+            --set min and max slots
+            imgui.Text("Item name:")
+            imgui.SameLine();
+            imgui.PushItemWidth(350);
+            imgui.InputText("##FindName", window.findItemNameBuf, window.findItemNameBufSize);
+            --look through min->max slots
+            for i = 0, 249 do
+                --Split based on slots, ie equipped gear, inventory, vault, house vault
+                local itemTemp = daoc.items.get_item(i);
+                if (itemTemp.name ~= '') then
+                    findItems:append(T{slot = i, name = itemTemp.name});
+                end
+                --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
+            end
+            
+            findItems:each(function (v,k)
+                if (v.name:lower():contains(window.findItemNameBuf[1]:lower())) then
+                    imgui.Text(("Slot %d - %s\n"):fmt(v.slot, v.name));
+                end
+            end);
         end
     end
     imgui.End();
