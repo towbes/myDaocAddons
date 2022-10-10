@@ -34,7 +34,7 @@ local ffi = require 'ffi';
 
 
 --[[
-* Entity Related Function Definitions
+* Inventory Related Function Definitions
 --]]
 ffi.cdef[[
     typedef void        (__cdecl *sell_item_f)(const uint32_t slotNum);
@@ -64,21 +64,27 @@ daoc.items.move_item = function (toSlot, fromSlot, count)
     ffi.cast('move_item_f', ptr)(toSlot, fromSlot, count);
 end
 
--- Window Variables
-local window = T{
-    is_checked = T{ false, },
+-- inventory Variables
+local inventory = T{
+    find_is_checked = T{ false, },
     minSlotBuf = { '40' },
-    minSlotBufSize = 3,
+    minSlotBufSize = 4,
     maxSlotBuf = { '79' },
-    maxSlotBufSize = 3,
+    maxSlotBufSize = 4,
     findItemNameBuf = {''},
     findItemNameBufSize = 100,
+    --Slots to be used for sorting, must be empty
+    sortSlots = T{ 48, 49},
     
 };
 
+--Items tables for sort / find
 local alphaItems = T{ };
 local findItems = T{ };
+local sortItems = T{ };
 
+--Combo box for sort type
+local sortType = T{0};
 
 
 
@@ -103,6 +109,28 @@ hook.events.register('unload', 'unload_cb', function ()
 end);
 
 --[[
+* Prints the addon specific help information.
+*
+* @param {err} err - Flag that states if this function was called due to an error.
+--]]
+local function print_help(err)
+    err = err or false;
+
+    local mode = daoc.chat.message_mode.help;
+    if (err) then
+        daoc.chat.msg(mode, 'Invalid command syntax for inventory addon');
+    else
+        daoc.chat.msg(mode, 'Available commands for the inventory addon are:');
+    end
+
+    local help = daoc.chat.msg:compose(function (cmd, desc)
+        return mode, ('  %s - %s'):fmt(cmd, desc);
+    end);
+
+    help('/sell <minSlot> <maxSlot>', 'Sell items between slots (must be between 40 and 79)');
+end
+
+--[[
 * event: command
 * desc : Called when the game is handling a command.
 --]]
@@ -113,8 +141,8 @@ hook.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Command: /example1
-    if ((args[1]:ieq('inv') and e.imode == daoc.chat.input_mode.slash) or args[1]:ieq('/inv')) then
+    -- Command: /inv
+    if ((args[1]:ieq('inventory') and e.imode == daoc.chat.input_mode.slash) or args[1]:ieq('/inventory')) then
         -- Mark the command as handled, preventing the game from ever seeing it..
         e.blocked = true;
         if (#args == 1) then return; end
@@ -134,11 +162,31 @@ hook.events.register('command', 'command_cb', function (e)
             daoc.chat.msg(daoc.chat.message_mode.help, ('Slot %d Name: %s'):fmt(daoc.items.slot_inv_bag1_slot1, itemTest.name));
             return;
         end
-
+		-- Unknown sub-command..
+		print_help(true);
         return;
     end
 
+    -- Command: /sell <minSlot> <maxSlot>
+    if ((args[1]:ieq('sell') and e.imode == daoc.chat.input_mode.slash) or args[1]:ieq('/sell')) then
+        -- Mark the command as handled, preventing the game from ever seeing it..
+        e.blocked = true;
+        if (#args < 3) then return; end
 
+        local minSlot = tonumber(args[2]);
+        local maxSlot = tonumber(args[3]);
+
+        if minSlot < 40 or minSlot > 79 then return; end
+        if maxSlot < 40 or maxSlot > 79 then return; end
+
+        for i = minSlot, maxSlot do
+            daoc.items.sell_item(i);
+        end
+
+		-- Unknown sub-command..
+		print_help(true);
+        return;
+    end
 
 end);
 
@@ -215,7 +263,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
     --[[
     Event has no arguments.
     --]]
-    -- Render a custom example window via ImGui..
+    -- Render a custom example inventory via ImGui..
     imgui.SetNextWindowSize(T{ 350, 200, }, ImGuiCond_FirstUseEver);
     if (imgui.Begin('Inventory Helper')) then
         if (imgui.TreeNode("All Slots")) then
@@ -226,38 +274,64 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                 imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
         end
-        if (imgui.TreeNode("Alpha Slots")) then
+        if (imgui.TreeNode("Sorted Slots")) then
             --clear the table
             alphaItems:clear();
             --set min and max slots
             imgui.Text("MinSlot:")
             imgui.SameLine();
             imgui.PushItemWidth(35);
-            imgui.InputText("##MinSlot", window.minSlotBuf, window.minSlotBufSize);
+            imgui.InputText("##MinSlot", inventory.minSlotBuf, inventory.minSlotBufSize);
             imgui.SameLine()
             imgui.Text("MaxSlot:")
             imgui.SameLine();
             imgui.PushItemWidth(35);
-            imgui.InputText("##MaxSlot", window.maxSlotBuf, window.maxSlotBufSize);
+            imgui.InputText("##MaxSlot", inventory.maxSlotBuf, inventory.maxSlotBufSize);
             --look through min->max slots
-            local minSlot = tonumber(window.minSlotBuf[1]);
-            local maxSlot = tonumber(window.maxSlotBuf[1]);
+            local minSlot = tonumber(inventory.minSlotBuf[1]);
+            local maxSlot = tonumber(inventory.maxSlotBuf[1]);
             if minSlot == nil or maxSlot == nil then return; end
             for i = minSlot, maxSlot do
                 --Split based on slots, ie equipped gear, inventory, vault, house vault
                 local itemTemp = daoc.items.get_item(i);
-                if (itemTemp.name ~= '') then
-                    alphaItems:append(T{slot = i, name = itemTemp.name});
+                if (not itemTemp.name:empty()) then
+                    alphaItems:append(T{slot = i, name = itemTemp.name, quality = itemTemp.quality, bonus_level = itemTemp.bonus_level});
                 end
                 --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
 
-            alphaItems:sort(function (a, b)
-                return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
-            end);
+            --select the sort type
+            imgui.SameLine();
+            imgui.PushItemWidth(100);
+            --imgui.Combo('sortType', 0, 'sortType');
+            local overlay_pos = { sortType[1] };
+            if (imgui.Combo('##sortType', overlay_pos, 'Alpha\0Quality\0Bonus Level\0\0')) then
+                sortType[1] = overlay_pos[1];
+            end
+            
+            --sort items based on type
+            --Alpha
+            if sortType[1] == 0 then
+                alphaItems:sort(function (a, b)
+                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                end);
+            --quality
+            elseif sortType[1] == 1 then
+                alphaItems:sort(function (a, b)
+                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name < b.name) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name == b.name and a.slot < b.slot);
+                end);
+            --bonus level
+            elseif sortType[1] == 2 then
+                alphaItems:sort(function (a, b)
+                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name < b.name) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name == b.name and a.slot < b.slot);
+                end);              
+            --something went wrong
+            else
+                return;
+            end
 
             alphaItems:each(function (v,k)
-                imgui.Text(("Slot %d - %s\n"):fmt(v.slot, v.name));
+                imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d\n"):fmt(v.slot, v.name, v.quality, v.bonus_level));
             end);
         end
         if (imgui.TreeNode("Inventory Tools")) then
@@ -265,15 +339,15 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             imgui.Text("MinSlot:")
             imgui.SameLine();
             imgui.PushItemWidth(35);
-            imgui.InputText("##MinSlot", window.minSlotBuf, window.minSlotBufSize);
+            imgui.InputText("##MinSlot", inventory.minSlotBuf, inventory.minSlotBufSize);
             imgui.SameLine()
             imgui.Text("MaxSlot:")
             imgui.SameLine();
             imgui.PushItemWidth(35);
-            imgui.InputText("##MaxSlot", window.maxSlotBuf, window.maxSlotBufSize);
+            imgui.InputText("##MaxSlot", inventory.maxSlotBuf, inventory.maxSlotBufSize);
             if (imgui.Button('Sell')) then
-                local minSlot = tonumber(window.minSlotBuf[1]);
-                local maxSlot = tonumber(window.maxSlotBuf[1]);
+                local minSlot = tonumber(inventory.minSlotBuf[1]);
+                local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
                     daoc.items.sell_item(i);
                 end
@@ -281,8 +355,8 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             imgui.SameLine();
             if (imgui.Button('Drop')) then
                 --toSlot to drop something is slot 0
-                local minSlot = tonumber(window.minSlotBuf[1]);
-                local maxSlot = tonumber(window.maxSlotBuf[1]);
+                local minSlot = tonumber(inventory.minSlotBuf[1]);
+                local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
                     daoc.items.move_item(0, i, 0);
                 end
@@ -299,25 +373,172 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             imgui.Text("Item name:")
             imgui.SameLine();
             imgui.PushItemWidth(350);
-            imgui.InputText("##FindName", window.findItemNameBuf, window.findItemNameBufSize);
+            imgui.InputText("##FindName", inventory.findItemNameBuf, inventory.findItemNameBufSize);
+            --set min and max slots
+            imgui.Text("MinSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MinSlot", inventory.minSlotBuf, inventory.minSlotBufSize);
+            imgui.SameLine()
+            imgui.Text("MaxSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MaxSlot", inventory.maxSlotBuf, inventory.maxSlotBufSize);
+            imgui.SameLine();
+            imgui.Checkbox('Alpha Order', inventory.find_is_checked);
             --look through min->max slots
-            for i = 0, 249 do
+            local minSlot = tonumber(inventory.minSlotBuf[1]);
+            local maxSlot = tonumber(inventory.maxSlotBuf[1]);
+            if minSlot == nil or maxSlot == nil then return; end
+            for i = minSlot, maxSlot do
                 --Split based on slots, ie equipped gear, inventory, vault, house vault
                 local itemTemp = daoc.items.get_item(i);
-                if (itemTemp.name ~= '') then
+                if (not itemTemp.name:empty()) then
                     findItems:append(T{slot = i, name = itemTemp.name});
                 end
                 --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
             
+            if (inventory.find_is_checked) then
+                findItems:sort(function (a, b)
+                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                end);
+            end
+
             findItems:each(function (v,k)
-                if (v.name:lower():contains(window.findItemNameBuf[1]:lower())) then
+                if (v.name:lower():contains(inventory.findItemNameBuf[1]:lower())) then
                     imgui.Text(("Slot %d - %s\n"):fmt(v.slot, v.name));
                 end
             end);
         end
+        if (imgui.TreeNode("Vault")) then
+            imgui.Text(("Vault Start: %d , End: %d"):fmt(daoc.items.slot_vault_min, daoc.items.slot_vault_max));
+            imgui.Text(("HouseVault Start: %d , End: %d"):fmt(daoc.items.slot_houseinv_min, daoc.items.slot_houseinv_max));
+            --clear the table
+            sortItems:clear();
+            --set min and max slots
+            imgui.Text("MinSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MinSlot", inventory.minSlotBuf, inventory.minSlotBufSize);
+            imgui.SameLine()
+            imgui.Text("MaxSlot:")
+            imgui.SameLine();
+            imgui.PushItemWidth(35);
+            imgui.InputText("##MaxSlot", inventory.maxSlotBuf, inventory.maxSlotBufSize);
+
+            --look through min->max slots
+            local minSlot = tonumber(inventory.minSlotBuf[1]);
+            local maxSlot = tonumber(inventory.maxSlotBuf[1]);
+            if minSlot == nil or maxSlot == nil then return; end
+
+            for i = minSlot, maxSlot do
+                --Split based on slots, ie equipped gear, inventory, vault, house vault
+                local itemTemp = daoc.items.get_item(i);
+                if (not itemTemp.name:empty()) then
+                    sortItems:append(T{slot = i, name = itemTemp.name, quality = itemTemp.quality, bonus_level = itemTemp.bonus_level});
+                end
+                --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
+            end
+
+            --select the sort type
+            imgui.SameLine();
+            imgui.PushItemWidth(100);
+            --imgui.Combo('sortType', 0, 'sortType');
+            local overlay_pos = { sortType[1] };
+            if (imgui.Combo('##sortType', overlay_pos, 'Alpha\0Quality\0Bonus Level\0\0')) then
+                sortType[1] = overlay_pos[1];
+            end
+            
+            --sort items based on type
+            --Alpha
+            if sortType[1] == 0 then
+                sortItems:sort(function (a, b)
+                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                end);
+            --quality
+            elseif sortType[1] == 1 then
+                sortItems:sort(function (a, b)
+                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name < b.name) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name == b.name and a.slot < b.slot);
+                end);
+            --bonus level
+            elseif sortType[1] == 2 then
+                sortItems:sort(function (a, b)
+                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name < b.name) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name == b.name and a.slot < b.slot);
+                end);              
+            --something went wrong
+            else
+                return;
+            end
+            imgui.SameLine();
+            --use slots 48 and 49 for sorting
+            if (imgui.Button('Sort')) then
+                Sort(minSlot, maxSlot);
+            end
+
+            sortItems:each(function (v,k)
+                if (not v.name:empty()) then
+                    imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d\n"):fmt(v.slot, v.name, v.quality, v.bonus_level));
+                end
+            end);
+        end
+
     end
     imgui.End();
 
-end);
+end);   
 
+--[[
+* function: Sort
+* desc : Sort items in the game
+--]]
+function Sort(minSlot, maxSlot)
+    daoc.chat.msg(daoc.chat.message_mode.help, 'Starting sort');
+    --Return if arguments weren't passed properly
+    if minSlot == nil or maxSlot == nil then return; end
+    --if the first slotNum of alpha items does not equal the min Slot Num, move items
+    --Check that the sorting slots are empty
+    if daoc.items.get_item(inventory.sortSlots[1]).id ~= 0 or daoc.items.get_item(inventory.sortSlots[2]).id ~= 0 then
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Slot %d , %d are not empty!'):fmt(inventory.sortSlots[1], inventory.sortSlots[2]));
+        return
+    end
+    for i=1, #sortItems do
+        if (i + (minSlot - 1) ~= sortItems[i].slot) then
+            local savedSlot = sortItems[i].slot
+            local itemTemp = daoc.items.get_item(i + (minSlot - 1));
+            --Check that the slot isn't empty
+            if (not itemTemp.name:empty()) then
+                --Move the current slot to first sort slot
+                daoc.items.move_item(inventory.sortSlots[1], i + (minSlot - 1), 0);
+            end
+            --move the target item from alpha items to second sort slot
+            daoc.items.move_item(inventory.sortSlots[2], savedSlot, 0);
+            --replace current slot with target item 
+            daoc.items.move_item(i + (minSlot - 1), inventory.sortSlots[2], 0);
+            --put other item into next empty slot
+            if (not itemTemp.name:empty()) then
+                local emptySlot = next_empty_slot(minSlot, maxSlot);
+                if emptySlot == nil then
+                    return;
+                end
+                --replace current item to alpha items slot
+                daoc.items.move_item(emptySlot, inventory.sortSlots[1], 0);
+            end
+
+            --sleep to prevent spam
+            coroutine.sleep(0.5);
+        end
+    end
+    daoc.chat.msg(daoc.chat.message_mode.help, 'Sorting finished!');
+end
+
+function next_empty_slot(minSlot, maxSlot)
+    for i = minSlot, maxSlot do
+        --Split based on slots, ie equipped gear, inventory, vault, house vault
+        local itemTemp = daoc.items.get_item(i);
+        if (itemTemp.name:empty()) then
+            return i;
+        end
+    end
+    return nil;
+end
