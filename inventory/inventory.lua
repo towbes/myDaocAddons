@@ -73,8 +73,7 @@ local inventory = T{
     maxSlotBufSize = 4,
     findItemNameBuf = {''},
     findItemNameBufSize = 100,
-    --Slots to be used for sorting, must be empty
-    sortSlots = T{ 48, 49},
+    sortDelay = 0.35,
     
 };
 
@@ -313,17 +312,17 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             --Alpha
             if sortType[1] == 0 then
                 alphaItems:sort(function (a, b)
-                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                    return (a.name:lower() < b.name:lower()) or (a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);
             --quality
             elseif sortType[1] == 1 then
                 alphaItems:sort(function (a, b)
-                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name < b.name) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name == b.name and a.slot < b.slot);
+                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name:lower() < b.name:lower()) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);
             --bonus level
             elseif sortType[1] == 2 then
                 alphaItems:sort(function (a, b)
-                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name < b.name) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name == b.name and a.slot < b.slot);
+                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() < b.name:lower()) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);              
             --something went wrong
             else
@@ -401,7 +400,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             
             if (inventory.find_is_checked) then
                 findItems:sort(function (a, b)
-                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                    return (a.name:lower() < b.name:lower()) or (a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);
             end
 
@@ -454,17 +453,17 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             --Alpha
             if sortType[1] == 0 then
                 sortItems:sort(function (a, b)
-                    return (a.name < b.name) or (a.name == b.name and a.slot < b.slot);
+                    return (a.name:lower() < b.name:lower()) or (a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);
             --quality
             elseif sortType[1] == 1 then
                 sortItems:sort(function (a, b)
-                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name < b.name) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name == b.name and a.slot < b.slot);
+                    return (a.quality > b.quality) or (a.quality == b.quality and a.bonus_level > b.bonus_level) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name:lower() < b.name:lower()) or (a.quality == b.quality and a.bonus_level == b.bonus_level and a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);
             --bonus level
             elseif sortType[1] == 2 then
                 sortItems:sort(function (a, b)
-                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name < b.name) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name == b.name and a.slot < b.slot);
+                    return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() < b.name:lower()) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() == b.name:lower() and a.slot < b.slot);
                 end);              
             --something went wrong
             else
@@ -497,37 +496,12 @@ function Sort(minSlot, maxSlot)
     --Return if arguments weren't passed properly
     if minSlot == nil or maxSlot == nil then return; end
     --if the first slotNum of alpha items does not equal the min Slot Num, move items
-    --Check that the sorting slots are empty
-    if daoc.items.get_item(inventory.sortSlots[1]).id ~= 0 or daoc.items.get_item(inventory.sortSlots[2]).id ~= 0 then
-        daoc.chat.msg(daoc.chat.message_mode.help, ('Slot %d , %d are not empty!'):fmt(inventory.sortSlots[1], inventory.sortSlots[2]));
-        return
-    end
     for i=1, #sortItems do
         if (i + (minSlot - 1) ~= sortItems[i].slot) then
-            local savedSlot = sortItems[i].slot
-            local itemTemp = daoc.items.get_item(i + (minSlot - 1));
-            --Check that the slot isn't empty
-            if (not itemTemp.name:empty()) then
-                --Move the current slot to first sort slot
-                daoc.items.move_item(inventory.sortSlots[1], i + (minSlot - 1), 0);
-            end
-            --move the target item from alpha items to second sort slot
-            daoc.items.move_item(inventory.sortSlots[2], savedSlot, 0);
-            --replace current slot with target item 
-            daoc.items.move_item(i + (minSlot - 1), inventory.sortSlots[2], 0);
-            --put other item into next empty slot
-            if (not itemTemp.name:empty()) then
-                local emptySlot = next_empty_slot(minSlot, maxSlot);
-                if emptySlot == nil then
-                    return;
-                end
-                --replace current item to alpha items slot
-                daoc.items.move_item(emptySlot, inventory.sortSlots[1], 0);
-            end
-
-            --sleep to prevent spam
-            coroutine.sleep(0.5);
+            daoc.items.move_item(i + (minSlot - 1), sortItems[i].slot, 0);
         end
+        --sleep to prevent spam
+        coroutine.sleep(inventory.sortDelay);
     end
     daoc.chat.msg(daoc.chat.message_mode.help, 'Sorting finished!');
 end
