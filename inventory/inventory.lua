@@ -41,27 +41,26 @@ ffi.cdef[[
     typedef void        (__cdecl *move_item_f)(const uint32_t toSlot, const uint32_t fromSlot, const uint32_t count);
 ]];
 
+--Pointer variables
+local sellPtr = 0;
+local movePtr = 0;
+
+--flags
+local TaskList = T { }; --stores tasks to be completed in separate present callback
+local processingTask = false;
+
 --[[
 * Sells the item
 --]]
 daoc.items.sell_item = function (slotNum)
-    --Address of signature = game.dll + 0x0002B2E3
-    local ptr = hook.pointers.add('daoc.items.sellitem', 'game.dll', '558BEC83EC??833D00829900??75??568B35????????D906E8????????D946??8945??E8????????8945??6A??58E8????????6689????668B????8D75??6689????E8????????6A??6A??8BC66A', 0,0);
-    if (ptr == 0) then return; end
-    ffi.cast('sell_item_f', ptr)(slotNum);
+    ffi.cast('sell_item_f', hook.pointers.get('daoc.items.sellitem'))(slotNum);
 end
 
 --[[
 * Moves the item
 --]]
 daoc.items.move_item = function (toSlot, fromSlot, count)
-    --Address of signature = game.dll + 0x0002A976
-    local ptr = hook.pointers.add('daoc.items.moveitem', 'game.dll', '558BEC5151833D00829900??75??566A??58E8????????6689????668B????6689', 0,0);
-    if (ptr == 0) then 
-        error("Failed to load move_item")
-        return; 
-    end
-    ffi.cast('move_item_f', ptr)(toSlot, fromSlot, count);
+    ffi.cast('move_item_f', hook.pointers.get('daoc.items.moveitem'))(toSlot, fromSlot, count);
 end
 
 -- inventory Variables
@@ -73,7 +72,7 @@ local inventory = T{
     maxSlotBufSize = 4,
     findItemNameBuf = {''},
     findItemNameBufSize = 100,
-    sortDelay = 0.35,
+    sortDelay = 0.25,
     
 };
 
@@ -81,9 +80,11 @@ local inventory = T{
 local alphaItems = T{ };
 local findItems = T{ };
 local sortItems = T{ };
+local sortedIndex = T{ };
 
 --Combo box for sort type
 local sortType = T{0};
+
 
 
 
@@ -92,9 +93,19 @@ local sortType = T{0};
 * desc : Called when the addon is being loaded.
 --]]
 hook.events.register('load', 'load_cb', function ()
-    --[[
-    Event has no arguments.
-    --]]
+    --Sell item pointer
+    --Address of signature = game.dll + 0x0002B2E3
+    local ptr = hook.pointers.add('daoc.items.sellitem', 'game.dll', '558BEC83EC??833D00829900??75??568B35????????D906E8????????D946??8945??E8????????8945??6A??58E8????????6689????668B????8D75??6689????E8????????6A??6A??8BC66A', 0,0);
+    if (ptr == 0) then
+        error('Failed to locate sell item function pointer.');
+    end
+
+    --Move item pointer
+    --Address of signature = game.dll + 0x0002A976
+    ptr = hook.pointers.add('daoc.items.moveitem', 'game.dll', '558BEC5151833D00829900??75??566A??58E8????????6689????668B????6689', 0,0);
+    if (ptr == 0) then
+        error('Failed to locate move item function pointer.');
+    end
 end);
 
 --[[
@@ -190,75 +201,30 @@ hook.events.register('command', 'command_cb', function (e)
 end);
 
 --[[
-* event: message
-* desc : Called when the game is handling a message.
---]]
-hook.events.register('message', 'message_cb', function (e)
-    --[[
-
-    Event Arguments
-
-        e.mode              - number    - [Read Only] The message mode.
-        e.message           - string    - [Read Only] The message string.
-        e.modified_mode     - number    - The modified message mode.
-        e.modified_message  - string    - The modified message string.
-        e.injected          - boolean   - [Read Only] Flag that states if the event was injected by daochook or another addon.
-        e.blocked           - boolean   - Flag that states if the event has been blocked by daochook or another addon.
-
-    --]]
-end);
-
---[[
-* event: packet_recv
-* desc : Called when the game is handling a received packet.
---]]
-hook.events.register('packet_recv', 'packet_recv_cb', function (e)
-    --[[
-
-    Event Arguments
-
-        e.opcode            - number    - [Read Only] The packet opcode.
-        e.unknown           - number    - [Read Only] Unknown. (Generally zero.)
-        e.session_id        - number    - [Read Only] The client session id.
-        e.data              - string    - [Read Only] The packet data. (As a string literal.)
-        e.data_raw          - void*     - [Read Only] The packet data. (As a raw pointer, for use with FFI.)
-        e.data_modified     - string    - The modified packet data. (As a string literal.)
-        e.data_modified_raw - void*     - The modified packet data. (As a raw pointer, for use with FFI.)
-        e.size              - number    - [Read Only] The packet size.
-        e.state             - number    - [Read Only] The game state pointer.
-        e.injected          - boolean   - [Read Only] Flag that states if the event was injected by daochook or another addon.
-        e.blocked           - boolean   - Flag that states if the event has been blocked by daochook or another addon.
-
-    --]]
-end);
-
---[[
-* event: packet_send
-* desc : Called when the game is sending a packet.
---]]
-hook.events.register('packet_send', 'packet_send_cb', function (e)
-    --[[
-
-    Event Arguments
-
-        e.opcode            - number    - [Read Only] The packet opcode.
-        e.data              - string    - [Read Only] The packet data. (As a string literal.)
-        e.data_raw          - void*     - [Read Only] The packet data. (As a raw pointer, for use with FFI.)
-        e.data_modified     - string    - The modified packet data. (As a string literal.)
-        e.data_modified_raw - void*     - The modified packet data. (As a raw pointer, for use with FFI.)
-        e.size              - number    - [Read Only] The packet size.
-        e.parameter         - number    - [Read Only] The packet parameter.
-        e.injected          - boolean   - [Read Only] Flag that states if the event was injected by daochook or another addon.
-        e.blocked           - boolean   - Flag that states if the event has been blocked by daochook or another addon.
-
-    --]]
-end);
-
---[[
-* event: d3d_present
+* event: d3d_present_2 for sort
 * desc : Called when the Direct3D device is presenting a scene.
 --]]
-hook.events.register('d3d_present', 'd3d_present_cb', function ()
+hook.events.register('d3d_present', 'd3d_present_2', function ()
+    --[[
+    Event has no arguments.
+    --]]
+    if (TaskList:length() > 0 and processingTask == false) then
+        processingTask = true;
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Task: %s, size %d'):fmt(TaskList[1].name, TaskList:length()));
+        if (TaskList[1].name:ieq('Sort')) then
+            Sort(TaskList[1].minSlot, TaskList[1].maxSlot);
+        end
+        table.remove(TaskList, 1);
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Tasklist size: %d'):fmt(TaskList:length()));
+        processingTask = false;
+    end
+
+end);
+--[[
+* event: d3d_present_1 for imgui
+* desc : Called when the Direct3D device is presenting a scene.
+--]]
+hook.events.register('d3d_present', 'd3d_present_1', function ()
     --[[
     Event has no arguments.
     --]]
@@ -272,6 +238,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                 local itemTemp = daoc.items.get_item(i);
                 imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
+            imgui.TreePop()
         end
         if (imgui.TreeNode("Sorted Slots")) then
             --clear the table
@@ -332,6 +299,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             alphaItems:each(function (v,k)
                 imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d\n"):fmt(v.slot, v.name, v.quality, v.bonus_level));
             end);
+            imgui.TreePop()
         end
         if (imgui.TreeNode("Inventory Tools")) then
             imgui.Text(("Backpack Start: %d , End: %d"):fmt(daoc.items.slot_inv_min, daoc.items.slot_inv_max));
@@ -364,6 +332,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             if (imgui.Button('Destroy')) then
                 daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
             end
+            imgui.TreePop()
         end
         if (imgui.TreeNode("Find")) then
             --clear the table
@@ -409,10 +378,11 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                     imgui.Text(("Slot %d - %s\n"):fmt(v.slot, v.name));
                 end
             end);
+            imgui.TreePop()
         end
-        if (imgui.TreeNode("Vault")) then
-            imgui.Text(("Vault Start: %d , End: %d"):fmt(daoc.items.slot_vault_min, daoc.items.slot_vault_max));
-            imgui.Text(("HouseVault Start: %d , End: %d"):fmt(daoc.items.slot_houseinv_min, daoc.items.slot_houseinv_max));
+        if (imgui.TreeNode("Sort")) then
+            imgui.Text(("Vault Start: %d , End: %d"):fmt(daoc.items.slots.vault_min, daoc.items.slots.vault_max));
+            imgui.Text(("HouseVault Start: %d , End: %d"):fmt(daoc.items.slots.player_merchant_min, daoc.items.slots.player_merchant_max));
             --clear the table
             sortItems:clear();
             --set min and max slots
@@ -472,7 +442,16 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             imgui.SameLine();
             --use slots 48 and 49 for sorting
             if (imgui.Button('Sort')) then
-                Sort(minSlot, maxSlot);
+                sortedIndex:clear();
+                sortItems:each(function (v,k)
+                    if (not v.name:empty()) then
+                        sortedIndex:append(v.slot);
+                        --daoc.chat.msg(daoc.chat.message_mode.help, ('Slot %d - %s'):fmt(v.slot, v.name));
+                    end
+                end);           
+                local tempSort = T {name = 'Sort', minSlot = minSlot, maxSlot = maxSlot};   
+                TaskList:append(tempSort);
+                --daoc.chat.msg(daoc.chat.message_mode.help, ('Task added %s'):fmt(TaskList[1].name));
             end
 
             sortItems:each(function (v,k)
@@ -480,6 +459,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                     imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d\n"):fmt(v.slot, v.name, v.quality, v.bonus_level));
                 end
             end);
+            imgui.TreePop()
         end
 
     end
@@ -495,13 +475,14 @@ function Sort(minSlot, maxSlot)
     daoc.chat.msg(daoc.chat.message_mode.help, 'Starting sort');
     --Return if arguments weren't passed properly
     if minSlot == nil or maxSlot == nil then return; end
+
     --if the first slotNum of alpha items does not equal the min Slot Num, move items
-    for i=1, #sortItems do
-        if (i + (minSlot - 1) ~= sortItems[i].slot) then
+    for i=1, sortItems:length() do
+        --if (sortItems[i].slot ~= i + (minSlot - 1)) then
             daoc.items.move_item(i + (minSlot - 1), sortItems[i].slot, 0);
-        end
-        --sleep to prevent spam
-        coroutine.sleep(inventory.sortDelay);
+            --sleep to prevent spam
+            coroutine.sleep(inventory.sortDelay);
+        --end
     end
     daoc.chat.msg(daoc.chat.message_mode.help, 'Sorting finished!');
 end
