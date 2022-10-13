@@ -39,6 +39,7 @@ local ffi = require 'ffi';
 ffi.cdef[[
     typedef void        (__cdecl *sell_item_f)(const uint32_t slotNum);
     typedef void        (__cdecl *move_item_f)(const uint32_t toSlot, const uint32_t fromSlot, const uint32_t count);
+    typedef void        (__cdecl *use_slot_f)(const uint32_t slotNum, const uint32_t useType);
 ]];
 
 --Pointer variables
@@ -61,6 +62,13 @@ end
 --]]
 daoc.items.move_item = function (toSlot, fromSlot, count)
     ffi.cast('move_item_f', hook.pointers.get('daoc.items.moveitem'))(toSlot, fromSlot, count);
+end
+
+--[[
+* Uses the slot
+--]]
+daoc.items.use_slot = function (slotNum, useType)
+    ffi.cast('use_slot_f', hook.pointers.get('daoc.items.useslot'))(slotNum, useType);
 end
 
 -- inventory Variables
@@ -106,6 +114,14 @@ hook.events.register('load', 'load_cb', function ()
     if (ptr == 0) then
         error('Failed to locate move item function pointer.');
     end
+
+    --Use Slot
+    --Address of signature = game.dll + 0x0002B6F5
+    ptr = hook.pointers.add('daoc.items.useslot', 'game.dll', '558BEC83EC??833D00829900??0F85????????D905????????576A??33C0598D7D??F3??8B0D????????5FD941??DAE9DFE0F6C4??7B??804DFB??5333DB3859??5674??D905????????D941??DAE9DFE0F6C4??7B??804DFB??A1????????????????53E8????????84C05974??A1????????????????3BC375??804DFB??A1????????????????53E8????????84C05974??804DFB??D905????????D905????????DAE9DFE0F6C4??7B??E8????????84C074??804DFB??A1????????????????53E8????????84C05974??804DFB??A1????????????????6689????8B08894D??8B48??894D??8B48??8B40??8945??8A45??8845??8A45??8D75??894D??8845??E8????????536A??8BC66A??50E8????????83C4??5E5BC9C3558BEC51', 0,0);
+    if (ptr == 0) then
+        error('Failed to locate use slot function pointer.');
+    end
+
 end);
 
 --[[
@@ -210,12 +226,12 @@ hook.events.register('d3d_present', 'd3d_present_2', function ()
     --]]
     if (TaskList:length() > 0 and processingTask == false) then
         processingTask = true;
-        daoc.chat.msg(daoc.chat.message_mode.help, ('Task: %s, size %d'):fmt(TaskList[1].name, TaskList:length()));
+        --daoc.chat.msg(daoc.chat.message_mode.help, ('Task: %s, size %d'):fmt(TaskList[1].name, TaskList:length()));
         if (TaskList[1].name:ieq('Sort')) then
             Sort(TaskList[1].minSlot, TaskList[1].maxSlot);
         end
         table.remove(TaskList, 1);
-        daoc.chat.msg(daoc.chat.message_mode.help, ('Tasklist size: %d'):fmt(TaskList:length()));
+        --daoc.chat.msg(daoc.chat.message_mode.help, ('Tasklist size: %d'):fmt(TaskList:length()));
         processingTask = false;
     end
 
@@ -302,7 +318,7 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             imgui.TreePop()
         end
         if (imgui.TreeNode("Inventory Tools")) then
-            imgui.Text(("Backpack Start: %d , End: %d"):fmt(daoc.items.slot_inv_min, daoc.items.slot_inv_max));
+            imgui.Text(("Backpack Start: %d , End: %d"):fmt(daoc.items.slots.vault_min, daoc.items.slots.vault_max));
             imgui.Text("MinSlot:")
             imgui.SameLine();
             imgui.PushItemWidth(35);
@@ -331,6 +347,9 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             imgui.SameLine();
             if (imgui.Button('Destroy')) then
                 daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
+            end
+            if (imgui.Button('Use Min Slot')) then
+                daoc.items.use_slot(tonumber(inventory.minSlotBuf[1]), 1);
             end
             imgui.TreePop()
         end
