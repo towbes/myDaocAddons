@@ -28,7 +28,6 @@ addon.version = '1.0';
 
 require 'common';
 require 'daoc';
-require 'helpers';
 
 local imgui = require 'imgui';
 
@@ -39,6 +38,17 @@ local window = T{
     scale       = T{ 1.0, },
     show        = T{ true, },
 };
+
+-- Color variables
+local colors = T {
+    green = T{ 0.0, 1.0, 0.0, 1.0, },
+    red = T{ 0.843, 0.083, 0.083, 1.0, },
+    orange = T{ 0.931, 0.429, 0.078, 1.0},
+    yellow = T{ 0.881, 0.931, 0.078, 1.0},
+    purple = T{ 0.557, 0.312, 0.750, 1.0},
+    blue = T{0.165, 0.444, 0.843, 1.0},
+    grey = T{0.461, 0.461, 0.461, 1.0},
+}
 
 --[[
 * event: d3d_present
@@ -64,10 +74,34 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
     -- Calculate the 3D distance between the player and target..
     local dist = math.distance3d(pstate.x, pstate.y, pstate.z, target.x, target.y, target.z);
 
+    local name = '';
+    local level = 0;
+    local objId = 0;
+
     --target name
     local name = daoc.entity.get_target_name();
+    local colorId = daoc.entity.get_target_name_color_id();
+    local color = colors.grey;
+    if (colorId ~= nil) then
+        --blue
+        if colorId == 1 then
+            color = colors.red;
+        elseif colorId == 2 then
+            color = colors.yellow;
+        elseif colorId == 3 then
+            color = colors.blue;
+        elseif colorId == 4 then
+            color = colors.green;
+        elseif colorId == 5 then
+            color = colors.orange;
+        elseif colorId == 6 then
+            color = colors.grey;
+        elseif colorId == 7 then
+            color = colors.purple;
+        end
+
+    end
     local level = target.level;
-    level = decode_level(level);
     local objId = target.object_id;
 
     -- Prepare the window flags..
@@ -80,7 +114,8 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
     imgui.SetNextWindowBgAlpha(window.opacity[1]);
     if (imgui.Begin('distance_overlay', window.show, flags)) then
         imgui.SetWindowFontScale(window.scale[1]);
-        imgui.Text(('%s'):fmt(name));
+        imgui.TextColored(color, ('%s'):fmt(name));
+        --imgui.Text(('Color: %d'):fmt(colorId));
         imgui.Text(('Id: %d'):fmt(objId));
         imgui.Text(('Lvl: %d'):fmt(level));
         imgui.Text(('Dist: %.f'):fmt(dist));
