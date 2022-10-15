@@ -332,7 +332,10 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
                 local minSlot = tonumber(inventory.minSlotBuf[1]);
                 local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
-                    daoc.items.sell_item(i);
+                    local item = daoc.items.get_item(i)
+                    if (item ~= nil and item.name:len() > 0) then
+                        daoc.items.sell_item(i);
+                    end
                 end
             end
             imgui.SameLine();
@@ -341,7 +344,10 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
                 local minSlot = tonumber(inventory.minSlotBuf[1]);
                 local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
-                    daoc.items.move_item(0, i, 0);
+                    local item = daoc.items.get_item(i)
+                    if (item ~= nil and item.name:len() > 0) then
+                        daoc.items.move_item(0, i, 0);
+                    end
                 end
             end
             imgui.SameLine();
@@ -349,7 +355,15 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
                 daoc.chat.msg(daoc.chat.message_mode.help, 'Button was clicked!');
             end
             if (imgui.Button('Use Min Slot')) then
-                daoc.items.use_slot(tonumber(inventory.minSlotBuf[1]), 1);
+                local item = daoc.items.get_item(inventory.minSlotBuf[1])
+                if (item ~= nil and item.name:len() > 0) then
+                    daoc.items.use_slot(tonumber(inventory.minSlotBuf[1]), 1);
+                end
+            end
+            for i = tonumber(inventory.minSlotBuf[1]), tonumber(inventory.maxSlotBuf[1]) do
+                --Split based on slots, ie equipped gear, inventory, vault, house vault
+                local itemTemp = daoc.items.get_item(i);
+                imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
             imgui.TreePop()
         end

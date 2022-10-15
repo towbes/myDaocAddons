@@ -188,12 +188,24 @@ hook.events.register('load', 'load_cb', function ()
 	s_position = shared.mem.Command.Position;
 	--daoc.chat.msg(daoc.chat.message_mode.help, ('Initial s_pos %d'):fmt(s_position));
 
+    -- Obtain the players current entity..
+    local player = daoc.entity.get(daoc.entity.get_player_index());
+    if (player == nil or player.initialized_flag == 0) then
+		error("Couldn't get player entity");
+        return;
+    end
+
+	local plyrName = player.name;
+
 	--Check if we already have an active process
 	local procId = C.GetProcessId(C.GetCurrentProcess());
     --Check if this process already has our procId
 	for i=0, 100 do
 		if (shared.mem.Name.Names[i].Active == 1) then
 			if (shared.mem.Name.Names[i].Process == procId) then
+				shared.mem.Name.Names[i].Active = 1;
+				shared.mem.Name.Names[i].Process = procId;
+				shared.mem.Name.Names[i].Name = plyrName;
 				return;
 			end
 		end
@@ -203,6 +215,7 @@ hook.events.register('load', 'load_cb', function ()
 		if (shared.mem.Name.Names[i].Active == 0) then
 			shared.mem.Name.Names[i].Active = 1;
 			shared.mem.Name.Names[i].Process = procId;
+			shared.mem.Name.Names[i].Name = plyrName;
 			return;
 		end
 	end
@@ -222,6 +235,7 @@ hook.events.register('unload', 'unload_cb', function ()
 			if (shared.mem.Name.Names[i].Process == procId) then
 				shared.mem.Name.Names[i].Active = 0;
 				shared.mem.Name.Names[i].Process = 0;
+				shared.mem.Name.Names[i].Name = '';
 			end
 			return;
 		end
@@ -261,6 +275,7 @@ local function print_help(err)
 
     help('/ms send <command>, /mss <command>', 'Send command to all windows');
     help('/ms sendothers <command>, /mso <command>', 'Send command to other windows');
+	help('/ms sendto <charname> <command>, /mst <charname> <command>', 'Send command to specific character');
 end
 
 --[[
@@ -272,7 +287,7 @@ hook.events.register('command', 'command_cb', function (e)
     local args = e.modified_command:args();
     if (#args == 0) then return; end
 
-    if ((args[1]:any('ms', 'mss', 'mso') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/ms', '/mss', '/mso')) then
+    if ((args[1]:any('ms', 'mss', 'mso', 'mst') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/ms', '/mss', '/mso', '/mst')) then
         e.blocked = true;
 
 		
@@ -377,58 +392,81 @@ hook.events.register('command', 'command_cb', function (e)
 			return;
 		end
 
-		-- Command: write
-		if ((args[2]:any('write'))) then
+		-- Command: mst - send to
+		if ((args[1]:any('mst') and e.imode == daoc.chat.input_mode.slash) or args[1]:any('/mst')) then
+
+			if (args[2] == nil or args[3] == nil) then daoc.chat.msg(daoc.chat.message_mode.help, "Not enough args"); return; end
 
 			if (shared.mem == nil) then
-				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
+				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[1]));
 				return;
 			end
 
-			local procId = C.GetProcessId(C.GetCurrentProcess());
-			daoc.chat.msg(daoc.chat.message_mode.help, ('ProcID: %d'):fmt(procId));
-			--shared.mem.Name.ProcessID = procId;
-			--shared.mem.Name.Names[0].Process = procId;
+			--get the char name
+			local charname = args[2];
 
-			for i=0, 100 do
-				if (shared.mem.Name.Names[i].Active == 0) then
-					shared.mem.Name.Names[i].Active = 1;
-					shared.mem.Name.Names[i].Process = procId;
-					
-					return;
-				end
-			end
-		end
-		-- Command: read
-		if ((args[2]:any('read'))) then
+			local procId = 0;
 
-			if (shared.mem == nil) then
-				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
-				return;
-			end
-
+			--Find the processId for charname
 			for i=0, 100 do
 				if (shared.mem.Name.Names[i].Active == 1) then
-					daoc.chat.msg(daoc.chat.message_mode.help, ('Char %d: %d'):fmt(i, shared.mem.Name.Names[i].Process));
+					daoc.chat.msg(daoc.chat.message_mode.help, ('name: %s , charname %s'):fmt(ffi.string(shared.mem.Name.Names[i].Name), charname));
+					if (ffi.string(shared.mem.Name.Names[i].Name):ieq(charname)) then
+						procId = shared.mem.Name.Names[i].Process;
+					end
 				end
 			end
+
+			if (procId == 0) then
+				daoc.chat.msg(daoc.chat.message_mode.help, ('Could not find %s'):fmt(charname));
+			end
+
+			--build the command
+			local command = args[3];
+			if (#args > 3) then
+				for i=4, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
+			end
+
+			SendCommand(C.single, procId, command);
 			return;
 		end
+		-- Command: sendto - send others
+		if (args[2]:any('sendto')) then
 
-		-- Command: clear
-		if ((args[2]:any('clear'))) then
+			if (args[3] == nil or args[4] == nil) then daoc.chat.msg(daoc.chat.message_mode.help, ("Not enough args")); return; end
 
 			if (shared.mem == nil) then
 				daoc.chat.msg(daoc.chat.message_mode.help, ('%s shm fail'):fmt(args[2]));
 				return;
 			end
 
-			--Set everything inactive
+			--get the char name
+			local charname = args[3];
+
+			local procId = 0;
+
+			--Find the processId for charname
 			for i=0, 100 do
-				shared.mem.Name.Names[i].Active = 0;
-				shared.mem.Name.Names[i].Process = 0;
+				if (shared.mem.Name.Names[i].Active == 1) then
+					--daoc.chat.msg(daoc.chat.message_mode.help, ('name: %s , charname %s'):fmt(ffi.string(shared.mem.Name.Names[i].Name), charname));
+					if (ffi.string(shared.mem.Name.Names[i].Name):ieq(charname)) then
+						procId = shared.mem.Name.Names[i].Process;
+					end
+				end
 			end
 
+			local command = args[4];
+			if (#args > 4) then
+				for i=5, #args do
+					command = command:append(" ");
+					command = command:append(args[i]);
+				end
+			end
+
+			SendCommand(C.single, procId, command);
 			return;
 		end
         
@@ -446,7 +484,6 @@ end);
 * desc : Called when the Direct3D device is presenting a scene.
 --]]
 hook.events.register('d3d_present', 'd3d_present_cb', function ()
-
 
 	--Check for command, executes every frame
 	ReadCommand();
@@ -509,7 +546,11 @@ function CheckMatch (cmdType, param)
 		if (procId ~= param) then
 			return true;
 		end
+	elseif (cmdType == C.single) then
+		--daoc.chat.msg(daoc.chat.message_mode.help, ('Checkmatch: %d, %d'):fmt(procId, param));
+		if (procId == param) then
+			return true;
+		end
 	end
-
+	return false;
 end
-
