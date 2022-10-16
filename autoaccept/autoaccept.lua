@@ -175,7 +175,7 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                     daoc.chat.msg(daoc.chat.message_mode.help, ('Autoaccept Settings Reset'));
                     settings.reset();
                 end
-				imgui.Text('Comma separated, no space (eg: Char1,Char2,Char3');
+				imgui.Text('Comma separated, no space (eg: Char1,Char2,Char3)');
 				imgui.InputText('Accept List', cfg1.accept, 255);
 				imgui.InputText('Deny List', cfg1.deny, 255);
                 imgui.EndTabItem();
