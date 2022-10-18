@@ -50,6 +50,7 @@ local movePtr = 0;
 local TaskList = T { }; --stores tasks to be completed in separate present callback
 local processingTask = false;
 
+
 --[[
 * Sells the item
 --]]
@@ -93,8 +94,18 @@ local sortedIndex = T{ };
 --Combo box for sort type
 local sortType = T{0};
 
+--Utility and required level(bonus level) logging variables for Eden
+local utilTable = T { };
+local bonusTable = T { };
+local utilTasks = T { };    
+local utilCurSlot = 0; --stores current slot so packet knows where to log the utility
+local utilCheck = T { false, }; --gui checkbox
+local procUtilTask = false;
+local logUtil = true;
 
-
+--do a check every 1000ms
+local tick_holder = hook.time.tick();
+local tick_interval = 500;
 
 --[[
 * event: load
@@ -217,6 +228,49 @@ hook.events.register('command', 'command_cb', function (e)
 end);
 
 --[[
+* event: packet_recv
+* desc : Called when the game is handling a received packet.
+--]]
+hook.events.register('packet_recv', 'packet_recv_cb', function (e)
+    if (e.opcode == 0xC4) then
+        -- Cast the raw packet pointer to a byte array via FFI..
+        local packet = ffi.cast('uint8_t*', e.data_modified_raw);
+        --Find the string 'Total Utility:' and get right most index
+        local utilStart = e.data:rfind('Total Utility: ', 0, e.data:len());
+        if utilStart ~= nil then
+            local strLen = packet[utilStart - 2];
+            utilStart = e.data:sub(utilStart, utilStart + strLen - 1);
+            local utilSplit = utilStart:psplit('Utility: ', 0, false);
+            --Check for required level
+            
+            local lvlStart = e.data:rfind('Required player', 0, e.data:len());
+            local reqlvl = 0;
+            local lvlSplit = '';
+            if lvlStart ~= nil then
+                local lvlStrLen = packet[lvlStart - 2];
+                
+                lvlStart = e.data:sub(lvlStart, lvlStart + lvlStrLen - 1);
+                lvlSplit = lvlStart:psplit('level: ', 0, false);
+                reqlvl = tonumber(lvlSplit[2]);
+            end
+            daoc.chat.msg(daoc.chat.message_mode.help, ('ItemUtil: %.03f, ReqLvl: %d'):fmt(tonumber(utilSplit[2]), reqlvl));
+            if utilCheck[1] then
+                utilTable[utilCurSlot] = tonumber(utilSplit[2]);
+                bonusTable[utilCurSlot] = reqlvl;
+                e.blocked = true;
+            end
+        else
+            if utilCheck[1] then
+                utilTable[utilCurSlot] = 0;
+                bonusTable[utilCurSlot] = 0;
+                e.blocked = true;
+            end
+            daoc.chat.msg(daoc.chat.message_mode.help, ('Pattern not found'));
+        end
+    end
+end);
+
+--[[
 * event: d3d_present_2 for sort
 * desc : Called when the Direct3D device is presenting a scene.
 --]]
@@ -234,6 +288,21 @@ hook.events.register('d3d_present', 'd3d_present_2', function ()
         --daoc.chat.msg(daoc.chat.message_mode.help, ('Tasklist size: %d'):fmt(TaskList:length()));
         processingTask = false;
     end
+
+    if (hook.time.tick() >= (tick_holder + tick_interval) ) then	
+		
+		tick_holder = hook.time.tick();
+        if (utilTasks:length() > 0 and procUtilTask == false) then
+            procUtilTask = true;
+            
+            GetUtil(utilTasks[1].slot);
+            table.remove(utilTasks, 1);
+            --daoc.chat.msg(daoc.chat.message_mode.help, ('Tasklist size: %d'):fmt(TaskList:length()));
+            procUtilTask = false;
+        end
+    end
+
+
 
 end);
 --[[
@@ -433,12 +502,17 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             local minSlot = tonumber(inventory.minSlotBuf[1]);
             local maxSlot = tonumber(inventory.maxSlotBuf[1]);
             if minSlot == nil or maxSlot == nil then return; end
+            if (minSlot < 0) then minSlot = 0 end;
+            if (maxSlot > 250) then maxSlot = 250 end;
 
             for i = minSlot, maxSlot do
                 --Split based on slots, ie equipped gear, inventory, vault, house vault
                 local itemTemp = daoc.items.get_item(i);
                 if (not itemTemp.name:empty()) then
-                    sortItems:append(T{slot = i, name = itemTemp.name, quality = itemTemp.quality, bonus_level = itemTemp.bonus_level});
+                    sortItems:append(T{slot = i, name = itemTemp.name, quality = itemTemp.quality, bonus_level = bonusTable[i] or itemTemp.bonus_level, utility = utilTable[i] or 0});
+                    --if utilCheck[1] and utilTable[i] == nil then
+                    --    utilTasks:append(T{slot = i})
+                    --end
                 end
                 --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
             end
@@ -448,7 +522,7 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             imgui.PushItemWidth(100);
             --imgui.Combo('sortType', 0, 'sortType');
             local overlay_pos = { sortType[1] };
-            if (imgui.Combo('##sortType', overlay_pos, 'Alpha\0Quality\0Bonus Level\0\0')) then
+            if (imgui.Combo('##sortType', overlay_pos, 'Alpha\0Quality\0Bonus Level\0Utility\0')) then
                 sortType[1] = overlay_pos[1];
             end
             
@@ -467,7 +541,12 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             elseif sortType[1] == 2 then
                 sortItems:sort(function (a, b)
                     return (a.bonus_level > b.bonus_level) or  (a.bonus_level == b.bonus_level and a.quality > b.quality) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() < b.name:lower()) or (a.bonus_level == b.bonus_level and a.quality == b.quality and a.name:lower() == b.name:lower() and a.slot < b.slot);
-                end);              
+                end);
+            --utility
+            elseif sortType[1] == 3 then
+                sortItems:sort(function (a, b)
+                    return (a.utility > b.utility) or (a.utility == b.utility and a.quality > b.quality) or (a.utility == b.utility and a.quality == b.quality and a.name:lower() < b.name:lower()) or (a.utility == b.utility and a.quality == b.quality and a.name:lower() == b.name:lower() and a.slot < b.slot);
+                end);
             --something went wrong
             else
                 return;
@@ -486,12 +565,55 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
                 TaskList:append(tempSort);
                 --daoc.chat.msg(daoc.chat.message_mode.help, ('Task added %s'):fmt(TaskList[1].name));
             end
-
-            sortItems:each(function (v,k)
-                if (not v.name:empty()) then
-                    imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d\n"):fmt(v.slot, v.name, v.quality, v.bonus_level));
+            imgui.SameLine();
+            imgui.Checkbox('Log Util', utilCheck);
+            imgui.SameLine();
+            if (imgui.Button('Get Util')) then
+                for i = minSlot, maxSlot do
+                    --Split based on slots, ie equipped gear, inventory, vault, house vault
+                    local itemTemp = daoc.items.get_item(i);
+                    if (not itemTemp.name:empty()) then
+                        if utilCheck[1] and utilTable[i] == nil then
+                            utilTasks:append(T{slot = i})
+                        end
+                    end
+                    --imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
                 end
-            end);
+            end
+            if (imgui.BeginTable('##find_items_list2', 5, bit.bor(ImGuiTableFlags_RowBg, ImGuiTableFlags_BordersH, ImGuiTableFlags_BordersV, ImGuiTableFlags_ContextMenuInBody, ImGuiTableFlags_ScrollX, ImGuiTableFlags_ScrollY, ImGuiTableFlags_SizingFixedFit))) then
+                imgui.TableSetupColumn('Slot', ImGuiTableColumnFlags_WidthFixed, 35.0, 0);
+                imgui.TableSetupColumn('Qual', ImGuiTableColumnFlags_WidthFixed, 55.0, 0);
+                imgui.TableSetupColumn('BLvl', ImGuiTableColumnFlags_WidthFixed, 55.0, 0);
+                imgui.TableSetupColumn('Util', ImGuiTableColumnFlags_WidthFixed, 55.0, 0);
+                imgui.TableSetupColumn('Name', ImGuiTableColumnFlags_WidthStretch, 0, 0);
+                imgui.TableSetupScrollFreeze(0, 1);
+                imgui.TableHeadersRow();
+                for x=1, sortItems:len() do
+                    imgui.PushID(x);
+                    imgui.TableNextRow();
+                    imgui.TableSetColumnIndex(0);
+                    imgui.Text(('%d'):fmt(sortItems[x].slot));
+                    imgui.TableNextColumn();
+                    imgui.Text(tostring(sortItems[x].quality));
+                    imgui.TableNextColumn();
+                    imgui.Text(tostring(sortItems[x].bonus_level));
+                    imgui.TableNextColumn();
+                    imgui.Text(tostring(sortItems[x].utility));
+                    imgui.TableNextColumn();
+                    imgui.Text(tostring(sortItems[x].name):gsub('%%', '%%%%'));
+                    imgui.PopID();
+                end
+                imgui.EndTable();
+            end
+            --sortItems:each(function (v,k)
+            --    if (not v.name:empty()) then
+            --        local util = 0;
+            --        if utilTable:containskey(v.slot) then 
+            --            util = utilTable[v.slot];
+            --        end
+            --        imgui.Text(("Slot %d - %s, Qua: %d, Blvl: %d, Util: %.02f\n"):fmt(v.slot, v.name, v.quality, v.bonus_level, util));
+            --    end
+            --end);
             imgui.TreePop()
         end
 
@@ -512,11 +634,20 @@ function Sort(minSlot, maxSlot)
     --if the first slotNum of alpha items does not equal the min Slot Num, move items
     for i=1, sortItems:length() do
         --if (sortItems[i].slot ~= i + (minSlot - 1)) then
+            --clear out the util table entry if it exists
+            --if utilTable:containskey(i + (minSlot - 1)) then
+            --    utilTable[i + (minSlot - 1)] = nil;
+            --end
+            --if utilTable:containskey(sortItems[i].slot) then
+            --    utilTable[sortItems[i].slot] = nil;
+            --end
             daoc.items.move_item(i + (minSlot - 1), sortItems[i].slot, 0);
             --sleep to prevent spam
             coroutine.sleep(inventory.sortDelay);
         --end
     end
+    utilTable:clear();
+    bonusTable:clear();
     daoc.chat.msg(daoc.chat.message_mode.help, 'Sorting finished!');
 end
 
@@ -529,4 +660,18 @@ function next_empty_slot(minSlot, maxSlot)
         end
     end
     return nil;
+end
+
+--[[
+* function: GetUtil
+* desc : Get total utility value on an item for Eden
+--]]
+function GetUtil(slot)
+    --Set curslot so when we receive packet it sets the right
+    utilCurSlot = slot;
+    --packet opcode 0xD8
+    --00 01 19 00 00 00 00 [slot] 00 00 00 00
+    local sendpacket = {0x00, 0x01, 0x19, 0x00, 0x00, 0x00, 0x00, slot, 0x00, 0x00, 0x00, 0x00};
+    daoc.game.send_packet(0xD8, sendpacket, 0);
+    
 end
