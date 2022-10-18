@@ -328,9 +328,11 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             imgui.SameLine();
             imgui.PushItemWidth(35);
             imgui.InputText("##MaxSlot", inventory.maxSlotBuf, inventory.maxSlotBufSize);
+            local minSlot = tonumber(inventory.minSlotBuf[1]);
+            local maxSlot = tonumber(inventory.maxSlotBuf[1]);
+            if minSlot == nil then minSlot = 40; end;
+            if maxSlot == nil then maxSlot = 79; end;
             if (imgui.Button('Sell')) then
-                local minSlot = tonumber(inventory.minSlotBuf[1]);
-                local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
                     local item = daoc.items.get_item(i)
                     if (item ~= nil and item.name:len() > 0) then
@@ -340,9 +342,6 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
             end
             imgui.SameLine();
             if (imgui.Button('Drop')) then
-                --toSlot to drop something is slot 0
-                local minSlot = tonumber(inventory.minSlotBuf[1]);
-                local maxSlot = tonumber(inventory.maxSlotBuf[1]);
                 for i = minSlot, maxSlot do
                     local item = daoc.items.get_item(i)
                     if (item ~= nil and item.name:len() > 0) then
@@ -360,7 +359,8 @@ hook.events.register('d3d_present', 'd3d_present_1', function ()
                     daoc.items.use_slot(tonumber(inventory.minSlotBuf[1]), 1);
                 end
             end
-            for i = tonumber(inventory.minSlotBuf[1]), tonumber(inventory.maxSlotBuf[1]) do
+            
+            for i = minSlot, maxSlot do
                 --Split based on slots, ie equipped gear, inventory, vault, house vault
                 local itemTemp = daoc.items.get_item(i);
                 imgui.Text(("Slot %d, ItemId - %u, ItemName - %s\n"):fmt(i, itemTemp.id, itemTemp.name));
