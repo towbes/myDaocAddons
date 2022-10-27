@@ -224,10 +224,13 @@ end
 
 -- Used with the default alias, 'settings'..
 local default_settings = T{
+    isCrafting = T {true},
     gem_list_str = T{ 'Hello world.', },
     craft_list = T { },
     realm_id = T { },
 };
+
+local craftQueue = T { };
 
 --Master Recipe list
 local masterRecipe = T { };
@@ -237,7 +240,7 @@ local spellcraftRecipes = T{};
 local matList = T {};
 
 --combo box for type of report
-local selectedCraft = T { 0 };
+local selectedCraft = T { 1 };
 
 -- Load both settings blocks..
 local scparser = settings.load(default_settings); -- Uses 'settings' alias by default..
@@ -371,6 +374,30 @@ hook.events.register('command', 'command_cb', function (e)
 end);
 
 --[[
+* event: packet_recv
+* desc : Called when the game is handling a received packet.
+--]]
+hook.events.register('packet_recv', 'packet_recv_cb', function (e)
+    -- OpCode: Message
+    if (e.opcode == 0xAF) then
+        if (e.data_modified:contains('fail') or e.data_modified:contains('successfully')) then
+			if (scparser.isCrafting[1]) then
+                if craftQueue:len() > 0 then
+                    local sendId = craftQueue[1];
+                    if sendId > 0 then
+                        local sendPkt = struct.pack('>H', sendId):totable();
+                        table.remove(craftQueue, 1);
+                        sendCraft(sendPkt);
+                    else
+                        daoc.chat.msg(daoc.chat.message_mode.help, ('Could not find item'));
+                    end
+                end
+			end
+		end
+    end
+end);
+
+--[[
 * event: d3d_present
 * desc : Called when the Direct3D device is presenting a scene.
 --]]
@@ -392,6 +419,13 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
             * Demostrates the usage of the default configuration alias 'settings'.
             --]]
             if (imgui.BeginTabItem('settings', nil)) then
+				imgui.Checkbox('Toggle', scparser.isCrafting);
+				imgui.SameLine();
+				if (scparser.isCrafting[1]) then
+					imgui.TextColored(T{ 0.0, 1.0, 0.0, 1.0, }, 'Crafting');
+				else
+					imgui.TextColored(T{ 1.0, 0.0, 0.0, 1.0, }, 'Not Crafting');
+				end
                 imgui.TextColored({ 0.0, 0.8, 1.0, 1.0 }, 'Type of report:');
                 imgui.SameLine();
 				local report_type = { selectedCraft[1] };
@@ -406,11 +440,11 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
                 end
                 imgui.SameLine();
                 if (imgui.Button('Buy Mats', { 75, 20 })) then
-
+                    checkMats();
                 end
                 imgui.SameLine();
                 if (imgui.Button('Craft Gems', { 85, 20 })) then
-
+                    doCraft();
                 end
                 imgui.SameLine();
                 if (imgui.Button('Reset', { 55, 20 })) then
@@ -438,9 +472,26 @@ end
 
 function parseGemList()
     
-    local gems = scparser.str_val3[1]:psplit('\n');
+    local gems = scparser.gem_list_str[1]:psplit('\n');
     for i = 1, gems:len() do
         daoc.chat.msg(daoc.chat.message_mode.help, ('gem: %s'):fmt(gems[i]));
+        scparser.craft_list:append(gems[i]);
+    end
+
+    for x = 1, scparser.craft_list:len() do
+        --Get base material in first index, rest of name in second index
+        local basemat = scparser.craft_list[x]:psplit(' ', 1, false);
+        local category = scparser.craft_list[x]:replace(basemat[1]..' ', '', 1);
+        --lookup the materials
+        --daoc.chat.msg(daoc.chat.message_mode.help, ('%s %s'):fmt(basemat[1], category));
+        matList = get_materials('Spellcraft', basemat[1], category);
+
+        matList:each(function (v, k)
+            --daoc.chat.msg(daoc.chat.message_mode.help, ('%s'):fmt(k));
+            --daoc.chat.msg(daoc.chat.message_mode.help, ('%d %s %s'):fmt(v['count'], v['base_material_name'], v['name']));
+        end);
+        
+        daoc.chat.msg(daoc.chat.message_mode.help, ('id: %d'):fmt(get_craftid('Spellcraft', basemat[1], category)));
     end
 end
 
@@ -448,6 +499,8 @@ function parseZenList()
     daoc.chat.msg(daoc.chat.message_mode.help, ('Parse zen list'));
     --split into table of each line
     local gems = scparser.gem_list_str[1]:psplit('\n');
+    --parse out the gem info
+
     local matLines = T {};
     for i = 1, gems:len() do
         --for each line, look for [] 
@@ -474,7 +527,7 @@ function parseZenList()
         local basemat = scparser.craft_list[x]:psplit(' ', 1, false);
         local category = scparser.craft_list[x]:replace(basemat[1]..' ', '', 1);
         --lookup the materials
-        daoc.chat.msg(daoc.chat.message_mode.help, ('%s %s'):fmt(basemat[1], category));
+        --daoc.chat.msg(daoc.chat.message_mode.help, ('%s %s'):fmt(basemat[1], category));
         matList = get_materials('Spellcraft', basemat[1], category);
 
         matList:each(function (v, k)
@@ -525,34 +578,45 @@ end
 function checkMats()
 
 	if scparser.isCrafting[1] then
-
-
-		for i=1, matList:len() do
-			local matname = matList[i].base_material_name .. ' ' .. matList[i].name;
-			--if the matname ends in an s, remove it
-			if matname:endswith('s') then
-				daoc.chat.msg(daoc.chat.message_mode.help, ('remove s'));
-				matname = matname:sub(1, -2);
-			end
-			--trim whitespace
-			matname = matname:clean();
-			local matval = matList[i].count;
-			daoc.chat.msg(daoc.chat.message_mode.help, ('buy %s %s'):fmt(matval, matname));
-			while matval >= 100 do
-				if (buyMats(matname, 100)) then
-					matval = matval - 100;
-				else
-					return;
-				end
-			end
-			if matval > 0 and matval < 100 then
-				if not buyMats(matname, matval) then
-					return;
-				end
-			end
-			coroutine.sleep(1);
-		end
-
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Starting buying'));
+        for x = 1, scparser.craft_list:len() do
+            --Get base material in first index, rest of name in second index
+            local basemat = scparser.craft_list[x]:psplit(' ', 1, false);
+            local category = scparser.craft_list[x]:replace(basemat[1]..' ', '', 1);
+            --lookup the materials
+            --daoc.chat.msg(daoc.chat.message_mode.help, ('%s %s'):fmt(basemat[1], category));
+            matList = get_materials('Spellcraft', basemat[1], category);
+    
+            matList:each(function (v, k)
+                --daoc.chat.msg(daoc.chat.message_mode.help, ('%s'):fmt(k));
+                --daoc.chat.msg(daoc.chat.message_mode.help, ('%d %s %s'):fmt(v['count'], v['base_material_name'], v['name']));
+                local matname = v.base_material_name .. ' ' .. v.name;
+                --if the matname ends in an s, remove it
+                if matname:endswith('s') then
+                    matname = matname:sub(1, -2);
+                end
+                --trim whitespace
+                matname = matname:clean();
+                local matval = v.count;
+                daoc.chat.msg(daoc.chat.message_mode.help, ('buy %s %s'):fmt(matval, matname));
+                while matval >= 100 do
+                    if (buyMats(matname, 100)) then
+                        matval = matval - 100;
+                    else
+                        return;
+                    end
+                end
+                if matval > 0 and matval < 100 then
+                    if not buyMats(matname, matval) then
+                        return;
+                    end
+                end
+                coroutine.sleep(1);
+            end);
+            
+            --daoc.chat.msg(daoc.chat.message_mode.help, ('id: %d'):fmt(get_craftid('Spellcraft', basemat[1], category)));
+        end
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Done buying'));
 		--doCraft();
 	end
 
@@ -572,5 +636,62 @@ function buyMats(matName, count)
 		daoc.chat.msg(daoc.chat.message_mode.help, ('No %s in merchant list'):fmt(matName));
 		return false;
 	end
-	return false;
+end
+
+function buyItem(slot, count)
+
+	if slot == nil or count == nil then
+		return;
+	end
+
+	if (daoc.items.get_merchantitem(0) == nil) then 
+		daoc.chat.msg(daoc.chat.message_mode.help, ('You must open merchant window'));
+		return;
+	end
+
+    --get player object for realm id
+    local player = daoc.entity.get(daoc.entity.get_player_index());
+    if player == nil then
+        error('Failed to get player entity.');
+		return;
+    end
+
+	--Packet 0x78
+	--int32 xpos
+	--int32 ypos
+	--int16 id (this is a merchant type ID) 04 is normal merchant
+	--int16 slotNum
+	--byte count
+	--byte menuId - 0 for menu id
+	--pack as big endian
+	local sendpkt = struct.pack('>I4I4I2I2BBBB', player.loc_x, player.loc_y, 04, slot, count, 0, 0, 0):totable();
+	daoc.game.send_packet(0x78, sendpkt, 0);
+	return true;
+end
+
+function doCraft ()
+
+    if scparser.isCrafting[1] then
+        for x = 1, scparser.craft_list:len() do
+            --Get base material in first index, rest of name in second index
+            local basemat = scparser.craft_list[x]:psplit(' ', 1, false);
+            local category = scparser.craft_list[x]:replace(basemat[1]..' ', '', 1);
+            --get the id
+            local craftId = get_craftid('Spellcraft', basemat[1], category)
+            craftQueue:append(craftId);
+        end
+    end
+    local sendId = craftQueue[1];
+    if sendId > 0 then
+        local sendPkt = struct.pack('>H', sendId):totable();
+        table.remove(craftQueue, 1);
+        sendCraft(sendPkt);
+    else
+        daoc.chat.msg(daoc.chat.message_mode.help, ('Could not find item'));
+    end
+end
+
+function sendCraft(packet)
+	--daoc.chat.msg(daoc.chat.message_mode.help, ('sendcraft %s'):fmt(packet:join()));
+	daoc.game.send_packet(0xED, packet, 0);
 end
