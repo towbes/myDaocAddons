@@ -99,7 +99,6 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
         elseif colorId == 7 then
             color = colors.purple;
         end
-
     end
     local level = target.level;
     local objId = target.object_id;
@@ -118,7 +117,11 @@ hook.events.register('d3d_present', 'd3d_present_cb', function ()
         --imgui.Text(('Color: %d'):fmt(colorId));
         imgui.Text(('Id: %d'):fmt(objId));
         imgui.Text(('Lvl: %d'):fmt(level));
-        imgui.Text(('Dist: %.f'):fmt(dist));
+        if (dist < 1500) then
+            imgui.TextColored(T{ 0.0, 1.0, 0.0, 1.0, }, (('Dist: %.f'):fmt(dist)));
+        else
+            imgui.TextColored(T{ 1.0, 0.0, 0.0, 1.0, }, (('Dist: %.f'):fmt(dist)));
+        end
         imgui.SetWindowFontScale(1.0);
 
         if (imgui.BeginPopupContextWindow()) then
